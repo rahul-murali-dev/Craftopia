@@ -1,137 +1,346 @@
-const products = [
-  {
-    id: 1,
-    name: "Handcrafted Terracotta Vase",
-    artisan: "Priya Sharma",
-    price: "₹850",
-    rating: 4.8,
-    reviews: 124,
-    gradient: "from-orange-200 to-amber-300",
-    icon: "🏺",
-  },
-  {
-    id: 2,
-    name: "Wooden Carved Decoration",
-    artisan: "Rajesh Kumar",
-    price: "₹1,200",
-    rating: 4.9,
-    reviews: 89,
-    gradient: "from-amber-600 to-amber-800",
-    icon: "",
-  },
-  {
-    id: 3,
-    name: "Handmade Beaded Necklace",
-    artisan: "Meera Patel",
-    price: "₹650",
-    rating: 4.7,
-    reviews: 203,
-    gradient: "from-rose-200 to-pink-300",
-    icon: "📿",
-  },
-  {
-    id: 4,
-    name: "Handwoven Cotton Table Runner",
-    artisan: "Aarav Singh",
-    price: "₹950",
-    rating: 4.6,
-    reviews: 67,
-    gradient: "from-yellow-100 to-amber-200",
-    icon: "🧶",
-  },
-];
 
-function StarRating({ rating }) {
-  return (
-    <div className="flex items-center gap-1">
-      {[1, 2, 3, 4, 5].map((star) => (
-        <svg
-          key={star}
-          className={`w-3.5 h-3.5 ${
-            star <= Math.round(rating) ? "text-amber-400" : "text-[#30231E]/20"
-          }`}
-          fill="currentColor"
-          viewBox="0 0 20 20"
-        >
-          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-        </svg>
-      ))}
-      <span className="text-xs text-[#30231E]/60 ml-1">{rating}</span>
-    </div>
-  );
-}
+import { useEffect, useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { Heart, ShoppingCart, Star } from "lucide-react";
+import api from "../../config/axiosInstance";
+
+const IMAGE_BASE_URL = "http://localhost:8000";
 
 export default function FeaturedProductsSection() {
+  const navigate = useNavigate();
+
+  const [products, setProducts] = useState([]);
+  const [wishlistItems, setWishlistItems] = useState([]);
+  const [wishlistLoading, setWishlistLoading] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  const getImageUrl = (image) => {
+    if (!image) return null;
+
+    if (image.startsWith("http")) {
+      return image;
+    }
+
+    return `${IMAGE_BASE_URL}${image}`;
+  };
+
+  const fetchProducts = async () => {
+    try {
+      setLoading(true);
+
+      const response = await api.get("/products/products/", {
+        params: {
+          page: 1,
+          ordering: "-created_at",
+        },
+      });
+
+      setProducts((response.data.results || []).slice(0, 4));
+    } catch (err) {
+      console.error("Featured products fetch error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchWishlist = async () => {
+    const token = localStorage.getItem("access");
+
+    if (!token) {
+      setWishlistItems([]);
+      return;
+    }
+
+    try {
+      const response = await api.get("/products/wishlist/");
+      setWishlistItems(response.data || []);
+    } catch (err) {
+      console.error("Wishlist fetch error:", err);
+
+      if (err.response?.status === 401) {
+        setWishlistItems([]);
+      }
+    }
+  };
+
+  useEffect(() => {
+    fetchProducts();
+    fetchWishlist();
+  }, []);
+
+  const isInWishlist = (productId) => {
+    return wishlistItems.some(
+      (item) => item.product?.id === productId
+    );
+  };
+
+  const handleWishlistToggle = async (e, productId) => {
+    e.stopPropagation();
+
+    if (!localStorage.getItem("access")) {
+      navigate("/login");
+      return;
+    }
+
+    if (wishlistLoading[productId]) return;
+
+    setWishlistLoading((prev) => ({
+      ...prev,
+      [productId]: true,
+    }));
+
+    try {
+      const existingItem = wishlistItems.find(
+        (item) => item.product?.id === productId
+      );
+
+      if (existingItem) {
+        await api.delete(`/products/wishlist/${existingItem.id}/`);
+
+        setWishlistItems((prev) =>
+          prev.filter((item) => item.id !== existingItem.id)
+        );
+      } else {
+        const response = await api.post("/products/wishlist/", {
+          product_id: productId,
+        });
+
+        if (response.data.wishlist_item) {
+          setWishlistItems((prev) => [
+            response.data.wishlist_item,
+            ...prev,
+          ]);
+        }
+      }
+
+      window.dispatchEvent(new Event("wishlistUpdated"));
+    } catch (err) {
+      console.error("Wishlist update error:", err);
+
+      if (err.response?.status === 401) {
+        navigate("/login");
+      } else {
+        alert(
+          err.response?.data?.message ||
+          err.response?.data?.error ||
+          "Unable to update wishlist."
+        );
+      }
+    } finally {
+      setWishlistLoading((prev) => ({
+        ...prev,
+        [productId]: false,
+      }));
+    }
+  };
+
+  const handleAddToCart = async (e, productId) => {
+    e.stopPropagation();
+
+    if (!localStorage.getItem("access")) {
+      navigate("/login");
+      return;
+    }
+
+    try {
+      await api.post("/products/cart/add/", {
+        product_id: productId,
+        quantity: 1,
+      });
+
+      window.dispatchEvent(new Event("cartUpdated"));
+      alert("Product added to cart successfully.");
+    } catch (err) {
+      console.error("Add to cart error:", err);
+
+      if (err.response?.status === 401) {
+        navigate("/login");
+      } else {
+        alert(
+          err.response?.data?.message ||
+          err.response?.data?.error ||
+          "Unable to add product to cart."
+        );
+      }
+    }
+  };
+
+  const formatPrice = (price) => {
+    return Number(price).toLocaleString("en-IN");
+  };
+
   return (
-    <section className="bg-[#F5EDE4] py-16 lg:py-24">
+    <section className="py-20 bg-[#F8F4ED]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Section Header */}
+
+        {/* Section Heading */}
         <div className="text-center mb-12">
-          <span className="text-xs font-semibold tracking-[0.2em] uppercase text-[#B87552] mb-2 block">
+          <p className="text-xs font-semibold tracking-[0.2em] uppercase text-[#B87552] mb-2">
             Handpicked for You
-          </span>
-          <h2 className="font-serif text-3xl lg:text-4xl font-bold text-[#30231E] mb-3">
+          </p>
+
+          <h2 className="font-serif text-3xl lg:text-4xl font-bold text-[#30231E]">
             Made by Hand, Loved by You
           </h2>
-          <p className="text-sm text-[#30231E]/60 max-w-xl mx-auto">
-            Each piece is crafted with love and care by our talented artisans.
-            Browse our most popular handmade creations.
+
+          <p className="text-sm text-[#30231E]/60 mt-3">
+            Discover unique creations from our talented artisans.
           </p>
         </div>
 
+        {/* Loading */}
+        {loading && (
+          <div className="text-center py-16 text-[#8B6248]">
+            Loading featured products...
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!loading && products.length === 0 && (
+          <div className="text-center py-16">
+            <p className="text-[#30231E]/60">
+              No featured products available right now.
+            </p>
+          </div>
+        )}
+
         {/* Product Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {products.map((product) => (
-            <div
-              key={product.id}
-              className="group bg-[#F8F4ED] rounded-2xl overflow-hidden hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
-            >
-              {/* Image */}
-              <div className={`relative aspect-square bg-gradient-to-br ${product.gradient}`}>
-                <div className="absolute inset-0 flex items-center justify-center text-6xl opacity-70 group-hover:scale-110 transition-transform duration-500">
-                  {product.icon}
-                </div>
-                <button className="absolute top-3 right-3 w-8 h-8 rounded-full bg-[#F8F4ED]/90 flex items-center justify-center hover:bg-[#F8F4ED] transition-colors">
-                  <svg className="w-4 h-4 text-[#30231E]/60" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                  </svg>
-                </button>
-              </div>
+        {!loading && products.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
 
-              {/* Content */}
-              <div className="p-4">
-                <p className="text-xs text-[#8B6248] font-medium mb-1">
-                  by {product.artisan}
-                </p>
-                <h3 className="font-serif text-base font-semibold text-[#30231E] mb-2 line-clamp-1">
-                  {product.name}
-                </h3>
-                <StarRating rating={product.rating} />
-                <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#30231E]/10">
-                  <span className="font-serif text-lg font-bold text-[#30231E]">
-                    {product.price}
-                  </span>
-                  <button className="px-3 py-1.5 bg-[#5C3A2E] text-[#F8F4ED] text-xs font-medium rounded-full hover:bg-[#30231E] transition-colors">
-                    Add to Cart
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+            {products.map((product) => {
+              const firstImage = product.images?.[0]?.image;
 
-        {/* CTA Button */}
+              const hasDiscount =
+                product.discount_price !== null &&
+                Number(product.discount_price) < Number(product.price);
+
+              const inWishlist = isInWishlist(product.id);
+
+              return (
+                <article
+                  key={product.id}
+                  onClick={() => navigate(`/products/${product.id}`)}
+                  className="group bg-white rounded-2xl overflow-hidden border border-[#30231E]/5 hover:shadow-xl transition-all duration-300 hover:-translate-y-1 cursor-pointer"
+                >
+                  {/* Product Image */}
+                  <div className="relative aspect-square bg-[#F5EDE4] overflow-hidden">
+
+                    {firstImage ? (
+                      <img
+                        src={getImageUrl(firstImage)}
+                        alt={product.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-[#8B6248]/50 text-sm">
+                        No Image Available
+                      </div>
+                    )}
+
+                    {/* Wishlist */}
+                    <button
+                      type="button"
+                      onClick={(e) =>
+                        handleWishlistToggle(e, product.id)
+                      }
+                      disabled={wishlistLoading[product.id]}
+                      aria-label={
+                        inWishlist
+                          ? "Remove from wishlist"
+                          : "Add to wishlist"
+                      }
+                      className="absolute top-3 right-3 z-10 w-10 h-10 rounded-full bg-white/95 shadow-md flex items-center justify-center hover:scale-110 transition disabled:opacity-50"
+                    >
+                      <Heart
+                        size={20}
+                        className={
+                          inWishlist
+                            ? "fill-[#B87552] text-[#B87552]"
+                            : "text-[#5C3A2E]"
+                        }
+                      />
+                    </button>
+
+                    {hasDiscount && (
+                      <span className="absolute top-3 left-3 bg-[#B87552] text-white text-xs font-semibold px-3 py-1 rounded-full">
+                        Sale
+                      </span>
+                    )}
+
+                    {product.stock <= 0 && (
+                      <span className="absolute top-3 left-3 bg-[#30231E] text-white text-xs px-3 py-1 rounded-full">
+                        Out of Stock
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Product Details */}
+                  <div className="p-4">
+
+                    <p className="text-xs text-[#8B6248] font-medium mb-1">
+                      {product.artisan?.business_name || "Artisan"}
+                    </p>
+
+                    <h3 className="font-serif text-lg font-semibold text-[#30231E] line-clamp-1">
+                      {product.name}
+                    </h3>
+
+                    <p className="text-xs text-[#30231E]/50 mt-1">
+                      {product.category?.name || "Uncategorized"}
+                    </p>
+
+                    {/* Price */}
+                    <div className="flex items-center gap-2 mt-3">
+                      <span className="font-serif text-lg font-bold text-[#30231E]">
+                        ₹
+                        {formatPrice(
+                          hasDiscount
+                            ? product.discount_price
+                            : product.price
+                        )}
+                      </span>
+
+                      {hasDiscount && (
+                        <span className="text-sm text-[#30231E]/40 line-through">
+                          ₹{formatPrice(product.price)}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Add to Cart */}
+                    <button
+                      type="button"
+                      disabled={product.stock <= 0}
+                      onClick={(e) =>
+                        handleAddToCart(e, product.id)
+                      }
+                      className="w-full mt-4 flex items-center justify-center gap-2 bg-[#5C3A2E] text-white py-2.5 rounded-full text-sm font-medium hover:bg-[#30231E] transition disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+                    >
+                      <ShoppingCart size={16} />
+                      {product.stock > 0
+                        ? "Add to Cart"
+                        : "Out of Stock"}
+                    </button>
+
+                  </div>
+                </article>
+              );
+            })}
+
+          </div>
+        )}
+
+        {/* Explore All Products */}
         <div className="text-center mt-12">
-          <a
-            href="/products"
-            className="inline-flex items-center gap-2 px-6 py-3 border-2 border-[#5C3A2E] text-[#5C3A2E] rounded-full text-sm font-medium hover:bg-[#5C3A2E] hover:text-[#F8F4ED] transition-colors"
+          <Link
+            to="/products"
+            className="inline-block border border-[#5C3A2E] text-[#5C3A2E] px-8 py-3 rounded-full text-sm font-semibold hover:bg-[#5C3A2E] hover:text-white transition"
           >
             Explore All Products
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-            </svg>
-          </a>
+          </Link>
         </div>
+
       </div>
     </section>
   );

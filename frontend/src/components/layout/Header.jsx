@@ -1,26 +1,128 @@
 
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, useCallback } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import api from "../../config/axiosInstance";
 
 const navLinks = [
   { label: "Home", href: "/home" },
-  { label: "Explore Crafts", href: "/explore" },
+  { label: "Explore Crafts", href: "/products" },
   { label: "Meet Our Artisans", href: "/artisans" },
 ];
-
 export default function Header() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [activePath, setActivePath] = useState("/home");
+  const activePath = location.pathname;
 
   const [isLoggedIn, setIsLoggedIn] = useState(
     () => !!localStorage.getItem("access")
   );
 
+  const [wishlistCount, setWishlistCount] = useState(0);
+  const [cartCount, setCartCount] = useState(0);
+
+  // Fetch Wishlist Count
+  const fetchWishlistCount = useCallback(async () => {
+    if (!localStorage.getItem("access")) {
+      setWishlistCount(0);
+      return;
+    }
+
+    try {
+      const response = await api.get("/products/wishlist/");
+
+      const wishlistItems = Array.isArray(response.data)
+        ? response.data
+        : response.data.results || [];
+
+      setWishlistCount(wishlistItems.length);
+    } catch (error) {
+      console.error("Wishlist count fetch error:", error);
+
+      if (error.response?.status === 401) {
+        setWishlistCount(0);
+      }
+    }
+  }, []);
+
+  // Fetch Cart Count
+  const fetchCartCount = useCallback(async () => {
+    if (!localStorage.getItem("access")) {
+      setCartCount(0);
+      return;
+    }
+
+    try {
+      const response = await api.get("/products/cart/");
+
+      const cart = response.data;
+
+      // Prefer backend total_items value
+      if (typeof cart.total_items === "number") {
+        setCartCount(cart.total_items);
+      } else {
+        // Fallback: calculate total quantity from cart items
+        const items = cart.items || [];
+
+        const totalQuantity = items.reduce(
+          (total, item) => total + Number(item.quantity || 0),
+          0
+        );
+
+        setCartCount(totalQuantity);
+      }
+    } catch (error) {
+      console.error("Cart count fetch error:", error);
+
+      if (error.response?.status === 401) {
+        setCartCount(0);
+      }
+    }
+  }, []);
+
+  // Fetch counts when Header loads or route changes
+  useEffect(() => {
+    setIsLoggedIn(!!localStorage.getItem("access"));
+
+    fetchWishlistCount();
+    fetchCartCount();
+  }, [location.pathname, fetchWishlistCount, fetchCartCount]);
+
+  // Listen for Wishlist updates
+  useEffect(() => {
+    const handleWishlistUpdate = () => {
+      fetchWishlistCount();
+    };
+
+    window.addEventListener("wishlistUpdated", handleWishlistUpdate);
+
+    return () => {
+      window.removeEventListener(
+        "wishlistUpdated",
+        handleWishlistUpdate
+      );
+    };
+  }, [fetchWishlistCount]);
+
+  // Listen for Cart updates
+  useEffect(() => {
+    const handleCartUpdate = () => {
+      fetchCartCount();
+    };
+
+    window.addEventListener("cartUpdated", handleCartUpdate);
+
+    return () => {
+      window.removeEventListener(
+        "cartUpdated",
+        handleCartUpdate
+      );
+    };
+  }, [fetchCartCount]);
+
   const handleNavigation = (path) => {
-    setActivePath(path);
+    
     setMobileOpen(false);
     navigate(path);
   };
@@ -35,6 +137,8 @@ export default function Header() {
       localStorage.removeItem("refresh");
 
       setIsLoggedIn(false);
+      setWishlistCount(0);
+      setCartCount(0);
       setMobileOpen(false);
 
       navigate("/home");
@@ -117,9 +221,37 @@ export default function Header() {
               </svg>
             </button>
 
+            {/* Cart */}
+            <button
+              aria-label={`Shopping Cart, ${cartCount} items`}
+              onClick={() => handleNavigation("/cart")}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-[#30231E]/70 hover:text-[#5C3A2E] hover:bg-[#5C3A2E]/10 transition-colors relative"
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3 3h2l2.4 12.4a2 2 0 002 1.6h8.8a2 2 0 002-1.6L22 7H6"
+                />
+                <circle cx="10" cy="21" r="1" />
+                <circle cx="19" cy="21" r="1" />
+              </svg>
+
+              <span className="absolute top-1.5 right-1.5 min-w-4 h-4 px-1 bg-[#5C3A2E] text-[#F8F4ED] text-[10px] font-bold rounded-full flex items-center justify-center">
+                {cartCount > 99 ? "99+" : cartCount}
+              </span>
+            </button>
+
             {/* Wishlist */}
             <button
-              aria-label="Wishlist"
+              aria-label={`Wishlist, ${wishlistCount} items`}
+              onClick={() => handleNavigation("/wishlist")}
               className="w-10 h-10 rounded-full flex items-center justify-center text-[#30231E]/70 hover:text-[#B87552] hover:bg-[#B87552]/10 transition-colors relative"
             >
               <svg
@@ -136,15 +268,14 @@ export default function Header() {
                 />
               </svg>
 
-              <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-[#B87552] text-[#F8F4ED] text-[10px] font-bold rounded-full flex items-center justify-center">
-                0
+              <span className="absolute top-1.5 right-1.5 min-w-4 h-4 px-1 bg-[#B87552] text-[#F8F4ED] text-[10px] font-bold rounded-full flex items-center justify-center">
+                {wishlistCount > 99 ? "99+" : wishlistCount}
               </span>
             </button>
 
             {/* Login / Signup OR Profile / Logout */}
             {!isLoggedIn ? (
               <div className="hidden sm:flex items-center gap-2 ml-2">
-
                 <button
                   onClick={() => handleNavigation("/login")}
                   className="px-4 py-2 text-sm font-medium text-[#5C3A2E] hover:bg-[#5C3A2E]/10 rounded-full transition"
@@ -158,11 +289,9 @@ export default function Header() {
                 >
                   Sign Up
                 </button>
-
               </div>
             ) : (
               <div className="hidden sm:flex items-center gap-2">
-
                 <button
                   aria-label="User profile"
                   onClick={() => handleNavigation("/user-profile")}
@@ -189,7 +318,6 @@ export default function Header() {
                 >
                   Logout
                 </button>
-
               </div>
             )}
 
@@ -209,7 +337,6 @@ export default function Header() {
                 </svg>
               )}
             </button>
-
           </div>
         </div>
 
@@ -235,6 +362,19 @@ export default function Header() {
               );
             })}
 
+            {/* Mobile Cart */}
+            <button
+              onClick={() => handleNavigation("/cart")}
+              className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-[#30231E]/80 hover:bg-[#5C3A2E]/10 transition-all"
+            >
+              <span className="text-[#5C3A2E]">🛒</span>
+              Shopping Cart
+
+              <span className="ml-auto min-w-5 h-5 px-1 bg-[#5C3A2E] text-[#F8F4ED] text-[10px] font-bold rounded-full flex items-center justify-center">
+                {cartCount > 99 ? "99+" : cartCount}
+              </span>
+            </button>
+
             {/* Mobile Wishlist */}
             <button
               onClick={() => handleNavigation("/wishlist")}
@@ -242,8 +382,9 @@ export default function Header() {
             >
               <span className="text-[#B87552]">♡</span>
               Wishlist
-              <span className="ml-auto w-5 h-5 bg-[#B87552] text-[#F8F4ED] text-[10px] font-bold rounded-full flex items-center justify-center">
-                0
+
+              <span className="ml-auto min-w-5 h-5 px-1 bg-[#B87552] text-[#F8F4ED] text-[10px] font-bold rounded-full flex items-center justify-center">
+                {wishlistCount > 99 ? "99+" : wishlistCount}
               </span>
             </button>
 
@@ -281,10 +422,8 @@ export default function Header() {
                 </button>
               </>
             )}
-
           </nav>
         )}
-
       </div>
     </header>
   );

@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import {
   Package,
   Hourglass,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react';
 
 const ArtisanDashboard = () => {
+  const navigate = useNavigate();
   const stats = [
     {
       label: 'Catalog',
@@ -295,6 +297,7 @@ const ArtisanDashboard = () => {
             <div className="space-y-3">
               <button
                 type="button"
+                onClick={() => navigate("/artisan/products/add")}
                 className="flex w-full flex-col items-center justify-center gap-2 rounded-xl bg-[#30231E] p-4 text-white shadow-md transition-colors hover:bg-[#5C3A2E]"
               >
                 <span className="flex items-center gap-2 font-bold">
@@ -309,6 +312,7 @@ const ArtisanDashboard = () => {
 
               <button
                 type="button"
+                onClick={() => navigate("/artisan/products")}
                 className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-[#E5E0D8] bg-white p-4 text-[#30231E] transition-colors hover:bg-[#F8F4ED]"
               >
                 <span className="flex items-center gap-2 font-bold">

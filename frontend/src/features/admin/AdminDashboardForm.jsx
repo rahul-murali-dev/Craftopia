@@ -7,6 +7,7 @@ import {
   Users,
   Store,
   Package,
+  Tags,
   ShoppingBag,
   CreditCard,
   TrendingUp,
@@ -25,6 +26,7 @@ export const NAV_ITEMS = [
   { label: "User Management", icon: Users, path: "/admin/users" },
   { label: "Artisan Management", icon: Store, path: "/admin/artisans" },
   { label: "Product Management", icon: Package, path: "/admin/products" },
+  { label: "Category Management", icon: Tags, path: "/admin/categories" },
   { label: "Order Management", icon: ShoppingBag, path: "/admin/orders" },
   { label: "Payment Management", icon: CreditCard, path: "/admin/payments" },
 ];

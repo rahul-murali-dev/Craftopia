@@ -169,6 +169,15 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
             "phone",
             "profile_image",
         ]
+
+    def validate_phone(self, value):
+        if not value.isdigit() or len(value) != 10:
+            raise serializers.ValidationError(
+                "Phone number must contain exactly 10 digits."
+            )
+
+        return value
+
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exclude(
             id=self.instance.id
@@ -176,9 +185,8 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "An account with this email already exists."
             )
-        return value  
-
-
+        return value
+    
 class AdminUserListSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -402,8 +410,12 @@ class ChangePasswordSerializer(serializers.Serializer):
 
         return attrs
     
+
 class ApprovedArtisanSerializer(serializers.ModelSerializer):
-    name = serializers.CharField(source="user.first_name", read_only=True)
+    name = serializers.CharField(
+        source="user.first_name",
+        read_only=True
+    )
 
     class Meta:
         model = ArtisanProfile
@@ -414,7 +426,9 @@ class ApprovedArtisanSerializer(serializers.ModelSerializer):
             "craft_type",
             "phone",
             "address",
+            "profile_image",
         ]
+
 
 class AdminArtisanSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()

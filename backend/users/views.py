@@ -50,13 +50,16 @@ User = get_user_model()
 # ==========================================
 # USER REGISTRATION
 # ==========================================
-
+from rest_framework.throttling import ScopedRateThrottle
 class UserRegistrationView(generics.CreateAPIView):
     serializer_class = UserRegistrationSerializer
     permission_classes = [permissions.AllowAny]
 
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "register"
+
     def create(self, request, *args, **kwargs):
-        
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -71,7 +74,8 @@ class UserRegistrationView(generics.CreateAPIView):
             otp=otp,
             purpose="registration",
             expires_at=timezone.now() + timedelta(minutes=5),
-                              )
+        )
+
         send_mail(
             subject="Craftopia Email Verification OTP",
             message=(
@@ -349,6 +353,9 @@ class UserLoginView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
+
     def post(self, request):
         serializer = UserLoginSerializer(
             data=request.data,
@@ -484,7 +491,9 @@ class AdminUserListView(generics.ListAPIView):
     ]
 
     def get_queryset(self):
-        return User.objects.all().order_by("-date_joined")
+     return User.objects.filter(
+        role="CUSTOMER"
+    ).order_by("-date_joined")
 
 class AdminArtisanListView(generics.ListAPIView):
     serializer_class = AdminArtisanSerializer
@@ -718,6 +727,9 @@ class AdminLoginView(APIView):
 class ForgotPasswordView(APIView):
     permission_classes = [permissions.AllowAny]
 
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "forgot_password"
+
     def post(self, request):
         serializer = ForgotPasswordSerializer(data=request.data)
 
@@ -749,7 +761,7 @@ class ForgotPasswordView(APIView):
         )
 
         print("GENERATED RESET LINK:", reset_link)
-
+        
         send_mail(
             subject="Craftopia Password Reset",
             message=(
@@ -773,6 +785,9 @@ class ForgotPasswordView(APIView):
 
 class ResetPasswordView(APIView):
     permission_classes = [permissions.AllowAny]
+
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "reset_password"
 
     def post(self, request):
         serializer = ResetPasswordSerializer(data=request.data)

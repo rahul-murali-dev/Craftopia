@@ -39,20 +39,38 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'users',
+    'product',
     'corsheaders',
 ]
 AUTH_USER_MODEL = 'users.User'
+
+from datetime import timedelta
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
+
+    "DEFAULT_THROTTLE_RATES": {
+        "login": "5/minute",
+        "register": "3/minute",
+        "forgot_password": "3/minute",
+        "reset_password": "3/minute",
+    },
+}
+
+
+SIMPLE_JWT = {
+    # Access token expires in 30 minutes
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
+
+    # Refresh token expires in 7 days
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
 }
 
 MIDDLEWARE = [
 
     'corsheaders.middleware.CorsMiddleware',
-    'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',

@@ -83,7 +83,8 @@ const LoginForm = () => {
       if (data.refresh) {
         localStorage.setItem('refresh', data.refresh);
       }
-
+      localStorage.setItem('userRole', data.user.role);
+      
       console.log(`${accountType} login successful:`, data);
 
       if (accountType === 'Customer') {

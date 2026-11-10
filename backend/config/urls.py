@@ -70,6 +70,8 @@ urlpatterns = [
     ArtisanOwnProfileView.as_view(),
     name="artisan-own-profile",
 ),
+
+    path("api/products/", include("product.urls")),
 ]
 if settings.DEBUG:
     urlpatterns += static(

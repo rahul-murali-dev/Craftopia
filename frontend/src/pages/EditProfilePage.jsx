@@ -46,6 +46,11 @@ export default function EditProfilePage() {
   const handleChange = (e) => {
     const { name, value } = e.target;
 
+    // Phone number: digits only, maximum 10 digits
+    if (name === "phone" && !/^\d{0,10}$/.test(value)) {
+      return;
+    }
+
     setFormData((prev) => ({
       ...prev,
       [name]: value,
@@ -53,23 +58,31 @@ export default function EditProfilePage() {
   };
 
   const handleImageChange = (e) => {
-  const file = e.target.files[0];
+    const file = e.target.files[0];
 
-  if (!file) return;
+    if (!file) return;
 
-  if (!file.type.startsWith("image/")) {
-    setError("Please select a valid image.");
-    return;
-  }
+    if (!file.type.startsWith("image/")) {
+      setError("Please select a valid image.");
+      return;
+    }
 
-  setProfileImage(file);
-  setRemoveProfileImage(false);
-  setImagePreview(URL.createObjectURL(file));
-  setError("");
-};
+    setProfileImage(file);
+    setRemoveProfileImage(false);
+    setImagePreview(URL.createObjectURL(file));
+    setError("");
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Validate phone number before API request
+    const phone = formData.phone.trim();
+
+    if (!/^\d{10}$/.test(phone)) {
+      setError("Phone number must contain exactly 10 digits.");
+      return;
+    }
 
     setSaving(true);
     setError("");
@@ -80,13 +93,13 @@ export default function EditProfilePage() {
 
       data.append("first_name", formData.first_name);
       data.append("last_name", formData.last_name);
-      data.append("phone", formData.phone);
+      data.append("phone", phone);
 
       if (profileImage) {
         data.append("profile_image", profileImage);
       } else if (removeProfileImage) {
-       data.append("remove_profile_image", "true");
-         }
+        data.append("remove_profile_image", "true");
+      }
 
       const response = await api.patch("/auth/profile/", data);
 
@@ -99,6 +112,7 @@ export default function EditProfilePage() {
       setTimeout(() => {
         navigate("/user-profile");
       }, 1200);
+
     } catch (err) {
       setError(
         err.response?.data?.detail ||
@@ -162,20 +176,22 @@ export default function EditProfilePage() {
                   <Camera size={17} />
                 </label>
               </div>
-               {imagePreview && (
-            <button
-             type="button"
-             onClick={() => {
-               setProfileImage(null);
-                 setImagePreview("");
-                   setRemoveProfileImage(true);
-               setError("");
-                }}
-                className="mt-2 text-sm font-medium text-red-600 hover:underline"
-  >
-               Remove Profile Photo
-              </button>
-)}
+
+              {imagePreview && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProfileImage(null);
+                    setImagePreview("");
+                    setRemoveProfileImage(true);
+                    setError("");
+                  }}
+                  className="mt-2 text-sm font-medium text-red-600 hover:underline"
+                >
+                  Remove Profile Photo
+                </button>
+              )}
+
               <input
                 id="profile_image"
                 type="file"
@@ -228,6 +244,8 @@ export default function EditProfilePage() {
                 name="phone"
                 value={formData.phone}
                 onChange={handleChange}
+                maxLength={10}
+                placeholder="Enter 10-digit phone number"
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-[#8B6248]"
               />
             </div>
