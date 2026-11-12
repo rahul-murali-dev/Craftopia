@@ -7,11 +7,39 @@ import api from "../../config/axiosInstance";
 export default function HeroSection() {
   const [heroImage, setHeroImage] = useState("");
 
-  const stats = [
-    { value: "120+", label: "Verified Artisans" },
-    { value: "500+", label: "Handmade Products" },
-    { value: "15+", label: "Craft Categories" },
-  ];
+  const [stats, setStats] = useState([
+    { value: "—", label: "Verified Artisans" },
+    { value: "—", label: "Handmade Products" },
+    { value: "—", label: "Craft Categories" },
+  ]);
+
+  useEffect(() => {
+    const fetchHomeStats = async () => {
+      try {
+        const response = await api.get("/auth/home-stats/");
+        const data = response.data;
+
+        setStats([
+          {
+            value: data.verified_artisans,
+            label: "Verified Artisans",
+          },
+          {
+            value: data.handmade_products,
+            label: "Handmade Products",
+          },
+          {
+            value: data.craft_categories,
+            label: "Craft Categories",
+          },
+        ]);
+      } catch (error) {
+        console.error("Unable to load homepage stats:", error);
+      }
+    };
+
+    fetchHomeStats();
+  }, []);
 
   useEffect(() => {
     const fetchHeroImage = async () => {

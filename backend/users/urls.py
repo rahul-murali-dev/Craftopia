@@ -10,6 +10,7 @@ from .views import (
     ArtisanOwnProfileView,
     ChangeEmailView,
     ChangePasswordView,
+    HomeStatsView,
     ResendOTPView,
     UserRegistrationView,
     UserLoginView,
@@ -56,9 +57,8 @@ urlpatterns = [
     path(
     "admin/dashboard/",
     AdminDashboardSummaryView.as_view(),
-    name="admin-dashboard-summary",
-),   
-    
+    name="admin-dashboard-summary"),   
+    path("home-stats/", HomeStatsView.as_view(), name="home-stats"),  
     
 
     

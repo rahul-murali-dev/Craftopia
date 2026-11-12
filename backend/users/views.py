@@ -977,7 +977,37 @@ class ResetPasswordView(APIView):
             {"message": "Password reset successfully."},
             status=status.HTTP_200_OK,
         )
+# ==========================================
+# HOMEPAGE STATS
+# ==========================================
 
+class HomeStatsView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+
+        verified_artisans = ArtisanProfile.objects.filter(
+            verification_status="APPROVED",
+            user__is_active=True
+        ).count()
+
+        handmade_products = Product.objects.filter(
+            is_published=True,
+            is_deleted=False,
+            category__is_deleted=False,
+            artisan__verification_status="APPROVED",
+            artisan__user__is_active=True
+        ).count()
+
+        craft_categories = Category.objects.filter(
+            is_deleted=False
+        ).count()
+
+        return Response({
+            "verified_artisans": verified_artisans,
+            "handmade_products": handmade_products,
+            "craft_categories": craft_categories
+        }, status=status.HTTP_200_OK)
 
 # ==========================================
 # APPROVED ARTISAN LIST
