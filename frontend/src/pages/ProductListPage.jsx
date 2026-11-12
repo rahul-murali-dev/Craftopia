@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -24,12 +23,16 @@ export default function ProductListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState(
+    () => searchParams.get("search") || "",
+  );
+
+  const [search, setSearch] = useState(() => searchParams.get("search") || "");
+
   const [ordering, setOrdering] = useState("-created_at");
   const [selectedCategory, setSelectedCategory] = useState(
-  () => searchParams.get("category") || ""
-                                  );
+    () => searchParams.get("category") || "",
+  );
 
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
@@ -118,6 +121,15 @@ export default function ProductListPage() {
       setLoading(false);
     }
   };
+   // Read Search Keyword from URL
+useEffect(() => {
+  const searchValue = searchParams.get("search") || "";
+
+  setSearchInput(searchValue);
+  setSearch(searchValue);
+  setPage(1);
+}, [searchParams]);
+
 
   // Initial Fetch
   useEffect(() => {
@@ -172,9 +184,7 @@ export default function ProductListPage() {
 
   // Check Whether Product Is in Wishlist
   const isInWishlist = (productId) => {
-    return wishlistItems.some(
-      (item) => item.product?.id === productId
-    );
+    return wishlistItems.some((item) => item.product?.id === productId);
   };
 
   // Add / Remove Wishlist
@@ -197,16 +207,14 @@ export default function ProductListPage() {
 
     try {
       const existingItem = wishlistItems.find(
-        (item) => item.product?.id === productId
+        (item) => item.product?.id === productId,
       );
 
       if (existingItem) {
-        await api.delete(
-          `/products/wishlist/${existingItem.id}/`
-        );
+        await api.delete(`/products/wishlist/${existingItem.id}/`);
 
         setWishlistItems((prev) =>
-          prev.filter((item) => item.id !== existingItem.id)
+          prev.filter((item) => item.id !== existingItem.id),
         );
       } else {
         const response = await api.post("/products/wishlist/", {
@@ -214,13 +222,10 @@ export default function ProductListPage() {
         });
 
         if (response.data.wishlist_item) {
-          setWishlistItems((prev) => [
-            response.data.wishlist_item,
-            ...prev,
-          ]);
+          setWishlistItems((prev) => [response.data.wishlist_item, ...prev]);
         }
       }
-       window.dispatchEvent(new Event("wishlistUpdated"));
+      window.dispatchEvent(new Event("wishlistUpdated"));
     } catch (err) {
       console.error("Wishlist update error:", err);
 
@@ -229,8 +234,8 @@ export default function ProductListPage() {
       } else {
         alert(
           err.response?.data?.message ||
-          err.response?.data?.error ||
-          "Unable to update wishlist. Please try again."
+            err.response?.data?.error ||
+            "Unable to update wishlist. Please try again.",
         );
       }
     } finally {
@@ -246,7 +251,6 @@ export default function ProductListPage() {
       <Header />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-
         {/* Page Heading */}
         <div className="mb-10 text-center">
           <p className="text-xs font-semibold tracking-[0.2em] uppercase text-[#B87552] mb-2">
@@ -286,14 +290,12 @@ export default function ProductListPage() {
 
         {/* Filters */}
         <div className="bg-white rounded-2xl p-5 mb-8 shadow-sm border border-[#30231E]/5">
-
           <div className="flex items-center gap-2 mb-4 text-[#30231E] font-semibold">
             <SlidersHorizontal size={18} />
             <span>Filter & Sort Products</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-
             {/* Sort */}
             <div>
               <label className="block text-xs font-medium text-[#30231E]/70 mb-2">
@@ -385,7 +387,6 @@ export default function ProductListPage() {
                 Clear Filters
               </button>
             </div>
-
           </div>
         </div>
 
@@ -440,7 +441,6 @@ export default function ProductListPage() {
         {/* Product Grid */}
         {!loading && !error && products.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-
             {products.map((product) => {
               const firstImage = product.images?.[0]?.image;
 
@@ -467,7 +467,6 @@ export default function ProductListPage() {
                 >
                   {/* Product Image */}
                   <div className="relative aspect-square bg-[#F5EDE4] overflow-hidden">
-
                     {firstImage ? (
                       <img
                         src={getImageUrl(firstImage)}
@@ -483,14 +482,10 @@ export default function ProductListPage() {
                     {/* Wishlist Button */}
                     <button
                       type="button"
-                      onClick={(e) =>
-                        handleWishlistToggle(e, product.id)
-                      }
+                      onClick={(e) => handleWishlistToggle(e, product.id)}
                       disabled={wishlistLoading[product.id]}
                       aria-label={
-                        inWishlist
-                          ? "Remove from wishlist"
-                          : "Add to wishlist"
+                        inWishlist ? "Remove from wishlist" : "Add to wishlist"
                       }
                       className="absolute top-3 right-3 z-10 w-10 h-10 rounded-full bg-white/95 shadow-md flex items-center justify-center hover:scale-110 transition disabled:opacity-50"
                     >
@@ -515,12 +510,10 @@ export default function ProductListPage() {
                         Out of Stock
                       </span>
                     )}
-
                   </div>
 
                   {/* Product Details */}
                   <div className="p-4">
-
                     <p className="text-xs text-[#8B6248] font-medium mb-1">
                       {product.artisan?.business_name || "Artisan"}
                     </p>
@@ -535,64 +528,50 @@ export default function ProductListPage() {
 
                     {/* Price */}
                     <div className="flex items-center gap-2 mt-3">
-
                       <span className="font-serif text-lg font-bold text-[#30231E]">
                         ₹
                         {Number(
-                          hasDiscount
-                            ? product.discount_price
-                            : product.price
+                          hasDiscount ? product.discount_price : product.price,
                         ).toLocaleString("en-IN")}
                       </span>
 
                       {hasDiscount && (
                         <span className="text-sm text-[#30231E]/40 line-through">
-                          ₹
-                          {Number(product.price).toLocaleString("en-IN")}
+                          ₹{Number(product.price).toLocaleString("en-IN")}
                         </span>
                       )}
-
                     </div>
 
                     {/* Stock */}
                     <p
                       className={`text-xs mt-2 ${
-                        product.stock > 0
-                          ? "text-green-700"
-                          : "text-red-600"
+                        product.stock > 0 ? "text-green-700" : "text-red-600"
                       }`}
                     >
                       {product.stock > 0
                         ? `${product.stock} available`
                         : "Currently unavailable"}
                     </p>
-
                   </div>
                 </article>
               );
             })}
-
           </div>
         )}
 
         {/* Pagination */}
         {!loading && !error && products.length > 0 && (
           <div className="flex justify-center items-center gap-5 mt-12">
-
             <button
               disabled={!pagination.previous}
-              onClick={() =>
-                setPage((current) => Math.max(1, current - 1))
-              }
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
               className="flex items-center gap-2 px-4 py-2 rounded-full border border-[#5C3A2E] text-[#5C3A2E] text-sm disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#5C3A2E] hover:text-white transition"
             >
               <ChevronLeft size={16} />
               Previous
             </button>
 
-            <span className="text-sm text-[#30231E]/70">
-              Page {page}
-            </span>
+            <span className="text-sm text-[#30231E]/70">Page {page}</span>
 
             <button
               disabled={!pagination.next}
@@ -602,10 +581,8 @@ export default function ProductListPage() {
               Next
               <ChevronRight size={16} />
             </button>
-
           </div>
         )}
-
       </main>
 
       <Footer />

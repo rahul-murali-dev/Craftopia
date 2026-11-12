@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import (AddToCartView, 
+from .views import (AddToCartView, AdminProductImageDeleteView, AdminProductListCreateView, 
 ArtisanCategoryListView, 
 CartDetailView, 
 CartValidationView,
@@ -8,6 +8,7 @@ CartValidationView,
      ArtisanProductListCreateView,
        ArtisanProductDetailView, 
        ArtisanProductImageDeleteView, 
+       AdminProductDetailView,
        CustomerCategoryListView, 
        CustomerProductListView, 
        CustomerProductDetailView, 
@@ -48,7 +49,24 @@ urlpatterns = [
     path( "wishlist/<int:pk>/", WishlistItemDetailView.as_view(), name="wishlist-item-detail"),
 
     path( "cart/validate/",CartValidationView.as_view(), name="cart-validation"),
-    
+    # Admin Product Management
+path(
+    "admin/products/",
+    AdminProductListCreateView.as_view(),
+    name="admin-product-list-create"
+),
+
+path(
+    "admin/products/<int:pk>/",
+    AdminProductDetailView.as_view(),
+    name="admin-product-detail"
+),
+
+path(
+    "admin/products/<int:product_pk>/images/<int:pk>/",
+    AdminProductImageDeleteView.as_view(),
+    name="admin-product-image-delete"
+),
     
    
 

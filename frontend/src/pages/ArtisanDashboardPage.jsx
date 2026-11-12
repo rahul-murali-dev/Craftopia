@@ -1,3 +1,4 @@
+
 import { useNavigate } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import ArtisanDashboard from '../features/artisan/ArtisanDashboard';
@@ -17,11 +18,34 @@ const ArtisanDashboardPage = () => {
       <header className="sticky top-0 z-50 border-b border-[#E5E0D8] bg-white">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex min-h-20 flex-wrap items-center justify-between gap-4 py-3">
+
             {/* Logo */}
             <div className="flex items-center gap-3">
-              <h1 className="font-serif text-2xl font-bold tracking-tight text-[#30231E]">
-                Craftopia
-              </h1>
+              <button
+                type="button"
+                onClick={() => navigate('/home')}
+                className="flex items-center gap-2 shrink-0"
+              >
+                <div className="w-9 h-9 rounded-full bg-[#5C3A2E] flex items-center justify-center">
+                  <svg
+                    className="w-5 h-5 text-[#F8F4ED]"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"
+                    />
+                  </svg>
+                </div>
+
+                <span className="font-serif text-xl lg:text-2xl font-bold text-[#30231E] tracking-tight">
+                  Craftopia
+                </span>
+              </button>
 
               <span className="rounded-full bg-[#B87552] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
                 Artisan Studio
@@ -34,21 +58,25 @@ const ArtisanDashboardPage = () => {
                 Dashboard
               </span>
 
-              <span className="cursor-default rounded-full px-4 py-2 text-sm font-medium text-[#5C3A2E]">
+              <button
+                type="button"
+                onClick={() => navigate('/artisan/products')}
+                className="rounded-full px-4 py-2 text-sm font-medium text-[#5C3A2E] transition-colors hover:bg-[#F8F4ED]"
+              >
                 My Products
-              </span>
+              </button>
 
               <span className="cursor-default rounded-full px-4 py-2 text-sm font-medium text-[#5C3A2E]">
                 Order Requests
               </span>
 
               <button
-              type="button"
-              onClick={() => navigate('/artisan/profile')}
-              className="rounded-full px-4 py-2 text-sm font-medium text-[#5C3A2E] transition-colors hover:bg-[#F8F4ED]"
-                               >
-                     Profile
-               </button>
+                type="button"
+                onClick={() => navigate('/artisan/profile')}
+                className="rounded-full px-4 py-2 text-sm font-medium text-[#5C3A2E] transition-colors hover:bg-[#F8F4ED]"
+              >
+                Profile
+              </button>
             </nav>
 
             {/* Artisan Profile and Logout */}

@@ -8,11 +8,15 @@ const navLinks = [
   { label: "Explore Crafts", href: "/products" },
   { label: "Meet Our Artisans", href: "/artisans" },
 ];
+
 export default function Header() {
   const navigate = useNavigate();
   const location = useLocation();
 
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+
   const activePath = location.pathname;
 
   const [isLoggedIn, setIsLoggedIn] = useState(
@@ -122,9 +126,23 @@ export default function Header() {
   }, [fetchCartCount]);
 
   const handleNavigation = (path) => {
-    
     setMobileOpen(false);
     navigate(path);
+  };
+
+  // Search Products
+  const handleSearch = (e) => {
+    e.preventDefault();
+
+    const searchValue = searchTerm.trim();
+
+    if (!searchValue) return;
+
+    setSearchOpen(false);
+    setSearchTerm("");
+    setMobileOpen(false);
+
+    navigate(`/products?search=${encodeURIComponent(searchValue)}`);
   };
 
   const handleLogout = async () => {
@@ -204,21 +222,38 @@ export default function Header() {
             {/* Search */}
             <button
               aria-label="Search"
+              onClick={() => setSearchOpen(!searchOpen)}
               className="w-10 h-10 rounded-full flex items-center justify-center text-[#30231E]/70 hover:text-[#30231E] hover:bg-[#5C3A2E]/10 transition-colors"
             >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
-              </svg>
+              {searchOpen ? (
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+              )}
             </button>
 
             {/* Cart */}
@@ -339,6 +374,47 @@ export default function Header() {
             </button>
           </div>
         </div>
+
+        {/* Search Form */}
+        {searchOpen && (
+          <form
+            onSubmit={handleSearch}
+            className="pb-4 pt-2 flex items-center gap-3"
+          >
+            <div className="flex-1 flex items-center gap-3 bg-white border border-[#5C3A2E]/20 rounded-full px-4 py-3 shadow-sm">
+              <svg
+                className="w-5 h-5 text-[#8B6248]"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+
+              <input
+                type="search"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search handmade products..."
+                autoFocus
+                className="flex-1 outline-none bg-transparent text-sm text-[#30231E] placeholder:text-[#8B6248]/60"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={!searchTerm.trim()}
+              className="px-6 py-3 bg-[#5C3A2E] text-white rounded-full text-sm font-medium hover:bg-[#8B6248] transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Search
+            </button>
+          </form>
+        )}
 
         {/* Mobile Navigation */}
         {mobileOpen && (

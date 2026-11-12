@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.db import transaction
 from .models import Wishlist
-from .serializers import WishlistSerializer
+from .serializers import AdminProductSerializer, WishlistSerializer
 from .models import (
     Category,
     Product,
@@ -152,6 +152,9 @@ class ArtisanProductImageDeleteView(generics.DestroyAPIView):
             product__artisan=self.request.user.artisan_profile,
             product__is_deleted=False
         )
+
+
+    
 class ProductPagination(PageNumberPagination):
     page_size = 12
     page_size_query_param = "page_size"
@@ -774,3 +777,102 @@ class CartValidationView(APIView):
                 },
                 status=status.HTTP_200_OK
             )    
+
+
+# Admin Product List and Create
+class AdminProductListCreateView(generics.ListCreateAPIView):
+
+    serializer_class = AdminProductSerializer
+    permission_classes = [permissions.IsAdminUser]
+    parser_classes = [MultiPartParser, FormParser]
+    pagination_class = ProductPagination
+
+    filter_backends = [
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+
+    search_fields = [
+        "name",
+        "description",
+        "category__name",
+        "artisan__business_name",
+        "artisan__user__email",
+    ]
+
+    ordering_fields = [
+        "name",
+        "price",
+        "created_at",
+        "stock",
+    ]
+
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        return Product.objects.filter(
+            is_deleted=False
+        ).select_related(
+            "artisan",
+            "artisan__user",
+            "category",
+        ).prefetch_related(
+            "images",
+        ).order_by("-created_at")
+
+    def perform_create(self, serializer):
+        product = serializer.save()
+
+        images = self.request.FILES.getlist("images")
+
+        for image in images:
+            ProductImage.objects.create(
+                product=product,
+                image=image
+            )
+
+# Admin Product Detail, Update and Soft Delete
+class AdminProductDetailView(generics.RetrieveUpdateDestroyAPIView):
+
+    serializer_class = AdminProductSerializer
+    permission_classes = [permissions.IsAdminUser]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        return Product.objects.filter(
+            is_deleted=False
+        ).select_related(
+            "artisan",
+            "artisan__user",
+            "category",
+        ).prefetch_related(
+            "images",
+        )
+
+    def perform_update(self, serializer):
+        product = serializer.save()
+
+        # Add new images without deleting existing images
+        images = self.request.FILES.getlist("images")
+
+        for image in images:
+            ProductImage.objects.create(
+                product=product,
+                image=image
+            )
+
+    def perform_destroy(self, instance):
+        instance.is_deleted = True
+        instance.save(update_fields=["is_deleted"])
+
+
+# Admin Delete Individual Product Image
+class AdminProductImageDeleteView(generics.DestroyAPIView):
+
+    permission_classes = [permissions.IsAdminUser]
+
+    def get_queryset(self):
+        return ProductImage.objects.filter(
+            product__id=self.kwargs["product_pk"],
+            product__is_deleted=False
+        )

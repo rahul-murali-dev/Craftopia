@@ -22,6 +22,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import Address, User, EmailOTP, ArtisanProfile
+from product.models import Category, Product
 
 from .serializers import (
     AddressSerializer,
@@ -513,7 +514,123 @@ class AdminArtisanListView(generics.ListAPIView):
         return ArtisanProfile.objects.select_related(
             "user"
         ).order_by("-created_at")
+# ==========================================
+# ADMIN DASHBOARD SUMMARY
+# ==========================================
 
+class AdminDashboardSummaryView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+
+        # USER COUNTS
+        customers = User.objects.filter(role="CUSTOMER")
+
+        total_users = customers.count()
+        active_users = customers.filter(is_active=True).count()
+        blocked_users = customers.filter(is_active=False).count()
+        unverified_users = customers.filter(
+            email_verified=False
+        ).count()
+
+        # ARTISAN COUNTS
+        artisans = ArtisanProfile.objects.all()
+
+        total_artisans = artisans.count()
+        pending_artisans = artisans.filter(
+            verification_status="PENDING"
+        ).count()
+        approved_artisans = artisans.filter(
+            verification_status="APPROVED"
+        ).count()
+        rejected_artisans = artisans.filter(
+            verification_status="REJECTED"
+        ).count()
+
+        # CATEGORY COUNTS
+        categories = Category.objects.filter(is_deleted=False)
+        total_categories = categories.count()
+
+        # PRODUCT COUNTS
+        products = Product.objects.filter(is_deleted=False)
+
+        total_products = products.count()
+        published_products = products.filter(
+            is_published=True
+        ).count()
+        unpublished_products = products.filter(
+            is_published=False
+        ).count()
+
+        # RECENT USERS
+        recent_users = list(
+            customers.order_by("-date_joined")
+            .values(
+                "id",
+                "username",
+                "first_name",
+                "last_name",
+                "email",
+                "is_active",
+                "email_verified",
+                "date_joined",
+            )[:5]
+        )
+
+        # RECENT ARTISANS
+        recent_artisans = list(
+            artisans.select_related("user")
+            .order_by("-created_at")
+            .values(
+                "id",
+                "business_name",
+                "craft_type",
+                "verification_status",
+                "created_at",
+                "user__email",
+                "user__first_name",
+                "user__last_name",
+            )[:5]
+        )
+
+        # RECENT PRODUCTS
+        recent_products = list(
+            products.select_related("category", "artisan")
+            .order_by("-created_at")
+            .values(
+                "id",
+                "name",
+                "price",
+                "stock",
+                "is_published",
+                "created_at",
+                "category__name",
+                "artisan__business_name",
+            )[:5]
+        )
+
+        return Response({
+            "stats": {
+                "total_users": total_users,
+                "active_users": active_users,
+                "blocked_users": blocked_users,
+                "unverified_users": unverified_users,
+
+                "total_artisans": total_artisans,
+                "pending_artisans": pending_artisans,
+                "approved_artisans": approved_artisans,
+                "rejected_artisans": rejected_artisans,
+
+                "total_categories": total_categories,
+
+                "total_products": total_products,
+                "published_products": published_products,
+                "unpublished_products": unpublished_products,
+            },
+            "recent_users": recent_users,
+            "recent_artisans": recent_artisans,
+            "recent_products": recent_products,
+        }, status=status.HTTP_200_OK)
 
 # ==========================================
 # ADMIN BLOCK / UNBLOCK USER

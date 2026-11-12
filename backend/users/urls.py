@@ -5,6 +5,7 @@ from .views import (
     AddressListCreateView,
     AdminArtisanListView,
     AdminArtisanStatusUpdateView,
+    AdminDashboardSummaryView,
     AdminUserListView,
     ArtisanOwnProfileView,
     ChangeEmailView,
@@ -52,7 +53,11 @@ urlpatterns = [
     path("admin/artisans/", AdminArtisanListView.as_view(), name="admin-artisan-list", ),
     path("admin/artisans/<int:id>/status/", AdminArtisanStatusUpdateView.as_view(), name="admin-artisan-status-update", ),
     path("artisan/profile/",ArtisanOwnProfileView.as_view(),name="artisan-own-profile",),
-        
+    path(
+    "admin/dashboard/",
+    AdminDashboardSummaryView.as_view(),
+    name="admin-dashboard-summary",
+),   
     
     
 

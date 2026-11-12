@@ -32,7 +32,7 @@ import AdminDashboardPage from "../pages/AdminDashboardPage";
 import AdminUserManagementPage from "../pages/AdminUserManagementPage";
 import AdminArtisanManagementPage from "../pages/AdminArtisanManagementPage";
 import CategoryManagementPage from "../pages/CategoryManagementPage";
-
+import AdminProductManagementPage from "../pages/AdminProductManagementPage";
 // Shared Profile Component
 import ChangeEmailForm from "../features/profile/ChangeEmailForm";
 
@@ -102,6 +102,10 @@ export default function AppRoute() {
           <Route path="users" element={<AdminUserManagementPage />} />
           <Route path="artisans" element={<AdminArtisanManagementPage />} />
           <Route path="categories" element={<CategoryManagementPage />} />
+          <Route path="/admin/products" element={<AdminProductManagementPage />}/>
+  
+  
+
         </Route>
       </Routes>
     </BrowserRouter>
