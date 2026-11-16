@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import (AddToCartView, AdminProductImageDeleteView, AdminProductListCreateView, 
+from .views import (AddToCartView, AdminProductImageDeleteView, AdminProductListCreateView, AdminStockManagementView, 
 ArtisanCategoryListView, 
 CartDetailView, 
 CartValidationView,
@@ -67,7 +67,16 @@ path(
     AdminProductImageDeleteView.as_view(),
     name="admin-product-image-delete"
 ),
-    
+path(
+    "admin/stock/",
+    AdminStockManagementView.as_view(),
+    name="admin-stock-list",
+),
+path(
+    "admin/stock/<int:product_id>/",
+    AdminStockManagementView.as_view(),
+    name="admin-stock-update",
+),   
    
 
 

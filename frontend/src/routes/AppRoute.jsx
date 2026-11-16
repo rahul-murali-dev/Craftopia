@@ -19,6 +19,11 @@ import CartPage from "../pages/CartPage";
 import WishlistPage from "../pages/WishlistPage";
 import PublicArtisanProfilePage from "../pages/PublicArtisanProfilePage";
 import ArtisanListPage from "../pages/ArtisanListPage";
+import CheckoutPage from "../pages/CheckoutPage";
+import OrderConfirmationPage from "../pages/OrderConfirmationPage";
+import MyOrdersPage from "../pages/MyOrdersPage";
+import OrderDetailPage from "../pages/OrderDetailPage";
+
 // Artisan Pages
 import ArtisanDashboardPage from "../pages/ArtisanDashboardPage";
 import ArtisanProfilePage from "../pages/ArtisanProfilePage";
@@ -33,6 +38,11 @@ import AdminUserManagementPage from "../pages/AdminUserManagementPage";
 import AdminArtisanManagementPage from "../pages/AdminArtisanManagementPage";
 import CategoryManagementPage from "../pages/CategoryManagementPage";
 import AdminProductManagementPage from "../pages/AdminProductManagementPage";
+import AdminOrdersPage from "../pages/AdminOrdersPage";
+import AdminOrderDetailPage from "../pages/AdminOrderDetailPage";
+import AdminReturnsPage from "../pages/AdminReturnsPage";
+import AdminStockPage from "../pages/AdminStockPage";
+import AdminPaymentsPage from "../pages/AdminPaymentsPage";
 // Shared Profile Component
 import ChangeEmailForm from "../features/profile/ChangeEmailForm";
 
@@ -83,7 +93,10 @@ export default function AppRoute() {
         <Route path="/wishlist" element={<WishlistPage />} />
         <Route path="/artisans/:id" element={<PublicArtisanProfilePage />} />
         <Route path="/artisans" element={<ArtisanListPage />} />
-
+        <Route path="/checkout" element={<CheckoutPage />} />
+        <Route path="/order-confirmation" element={<OrderConfirmationPage />} />
+        <Route path="/my-orders" element={<MyOrdersPage />} />
+        <Route path="/my-orders/:id" element={<OrderDetailPage />} />
         {/* Artisan Routes */}
         <Route path="/artisan-dashboard" element={<ArtisanDashboardPage />} />
         <Route path="/artisan/profile" element={<ArtisanProfilePage />} />
@@ -103,7 +116,11 @@ export default function AppRoute() {
           <Route path="artisans" element={<AdminArtisanManagementPage />} />
           <Route path="categories" element={<CategoryManagementPage />} />
           <Route path="/admin/products" element={<AdminProductManagementPage />}/>
-  
+          <Route path="orders" element={<AdminOrdersPage />} />
+          <Route path="orders/:id" element={<AdminOrderDetailPage />} />
+          <Route path="returns" element={<AdminReturnsPage />} />
+          <Route path="stock" element={<AdminStockPage />} />
+          <Route path="payments" element={<AdminPaymentsPage />} />
   
 
         </Route>

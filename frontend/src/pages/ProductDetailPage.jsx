@@ -23,6 +23,7 @@ import {
 import Header from "../components/layout/Header";
 import Footer from "../components/layout/Footer";
 import api from "../config/axiosInstance";
+import CustomAlert from "../components/ui/CustomAlert";
 
 const IMAGE_BASE_URL = "http://localhost:8000";
 
@@ -35,15 +36,47 @@ export default function ProductDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [isZoomOpen, setIsZoomOpen] = useState(false);
+  const [isHoveringImage, setIsHoveringImage] = useState(false);
+  const [zoomPosition, setZoomPosition] = useState({ x: 50, y: 50 });
   const [relatedProducts, setRelatedProducts] = useState([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
 
   const [addingToCart, setAddingToCart] = useState(false);
+  const [buyingNow, setBuyingNow] = useState(false);
   const [quantity, setQuantity] = useState(1);
 
   // Wishlist states
   const [wishlistItemId, setWishlistItemId] = useState(null);
   const [wishlistLoading, setWishlistLoading] = useState(false);
+
+  // Custom popup state
+  const [popup, setPopup] = useState({
+    isOpen: false,
+    type: "info",
+    title: "",
+    message: "",
+    onConfirm: null,
+  });
+
+  const showPopup = (type, title, message, onConfirm = null) => {
+    setPopup({
+      isOpen: true,
+      type,
+      title,
+      message,
+      onConfirm,
+    });
+  };
+
+  const closePopup = () => {
+    setPopup({
+      isOpen: false,
+      type: "info",
+      title: "",
+      message: "",
+      onConfirm: null,
+    });
+  };
 
   const getImageUrl = (image) => {
     if (!image) return null;
@@ -192,6 +225,19 @@ export default function ProductDetailPage() {
     setSelectedImage(getImageUrl(images[nextIndex].image));
   };
 
+  // Update the zoom position while moving the mouse over the product image.
+  const handleImageMouseMove = (event) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+
+    const x = ((event.clientX - bounds.left) / bounds.width) * 100;
+    const y = ((event.clientY - bounds.top) / bounds.height) * 100;
+
+    setZoomPosition({
+      x: Math.min(100, Math.max(0, x)),
+      y: Math.min(100, Math.max(0, y)),
+    });
+  };
+
   // Add Product to Cart
   const handleAddToCart = async () => {
     if (!localStorage.getItem("access")) {
@@ -208,13 +254,14 @@ export default function ProductDetailPage() {
       });
 
       window.dispatchEvent(new Event("cartUpdated"));
-      
-      alert(
-        response.data.message ||
-        "Product added to cart successfully!"
-      );
 
-      navigate("/cart");
+      showPopup(
+        "success",
+        "Added to Cart!",
+        response.data.message ||
+          "Product added to cart successfully!",
+        () => navigate("/cart")
+      );
     } catch (err) {
       console.error("Add to cart error:", err);
 
@@ -223,13 +270,42 @@ export default function ProductDetailPage() {
         return;
       }
 
-      alert(
+      showPopup(
+        "error",
+        "Unable to Add to Cart",
         err.response?.data?.message ||
-        "Unable to add product to cart. Please try again."
+          "Unable to add product to cart. Please try again."
       );
     } finally {
       setAddingToCart(false);
     }
+  };
+
+  // Buy Now - Direct checkout without modifying cart
+  const handleBuyNow = () => {
+    if (!localStorage.getItem("access")) {
+      navigate("/login");
+      return;
+    }
+
+    if (!product || product.stock < quantity || quantity < 1) {
+      showPopup(
+        "error",
+        "Product Unavailable",
+        "This product does not have enough stock."
+      );
+      return;
+    }
+
+    setBuyingNow(true);
+
+    navigate("/checkout", {
+      state: {
+        checkoutMode: "buy-now",
+        productId: product.id,
+        quantity: quantity,
+      },
+    });
   };
 
   // Add / Remove Wishlist
@@ -259,8 +335,8 @@ export default function ProductDetailPage() {
           await fetchWishlistStatus(product.id);
         }
       }
-      window.dispatchEvent(new Event("wishlistUpdated"));
 
+      window.dispatchEvent(new Event("wishlistUpdated"));
     } catch (err) {
       console.error("Wishlist toggle error:", err);
 
@@ -269,9 +345,11 @@ export default function ProductDetailPage() {
         return;
       }
 
-      alert(
+      showPopup(
+        "error",
+        "Wishlist Update Failed",
         err.response?.data?.message ||
-        "Unable to update wishlist. Please try again."
+          "Unable to update wishlist. Please try again."
       );
     } finally {
       setWishlistLoading(false);
@@ -359,8 +437,12 @@ export default function ProductDetailPage() {
 
               {/* Product Images */}
               <div>
-                <div className="relative aspect-square bg-white rounded-2xl overflow-hidden border border-[#30231E]/5 group">
-
+                <div
+                  className="relative aspect-square bg-white rounded-2xl overflow-hidden border border-[#30231E]/5 group"
+                  onMouseEnter={() => setIsHoveringImage(true)}
+                  onMouseMove={handleImageMouseMove}
+                  onMouseLeave={() => setIsHoveringImage(false)}
+                >
                   {selectedImage ? (
                     <img
                       src={selectedImage}
@@ -374,25 +456,39 @@ export default function ProductDetailPage() {
                     </div>
                   )}
 
+                  {/* Simple 2x hover zoom for desktop */}
+                  {selectedImage && isHoveringImage && !isZoomOpen && (
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-0 z-10 pointer-events-none"
+                      style={{
+                        backgroundImage: `url("${selectedImage}")`,
+                        backgroundRepeat: "no-repeat",
+                        backgroundSize: "200% 200%",
+                        backgroundPosition: `${zoomPosition.x}% ${zoomPosition.y}%`,
+                      }}
+                    />
+                  )}
+
                   {selectedImage && (
                     <button
                       type="button"
                       onClick={() => setIsZoomOpen(true)}
                       aria-label="Zoom product image"
-                      className="absolute bottom-4 right-4 bg-white/90 text-[#5C3A2E] p-3 rounded-full shadow-md hover:bg-white transition"
+                      className="absolute bottom-4 right-4 z-20 bg-white/90 text-[#5C3A2E] p-3 rounded-full shadow-md hover:bg-white transition"
                     >
                       <ZoomIn size={20} />
                     </button>
                   )}
 
                   {hasDiscount && (
-                    <span className="absolute top-5 left-5 bg-[#B87552] text-white text-xs font-semibold px-4 py-2 rounded-full">
+                    <span className="absolute top-5 left-5 z-20 bg-[#B87552] text-white text-xs font-semibold px-4 py-2 rounded-full">
                       Special Offer
                     </span>
                   )}
 
                   {product.stock === 0 && (
-                    <span className="absolute top-5 right-5 bg-[#30231E] text-white text-xs px-4 py-2 rounded-full">
+                    <span className="absolute top-5 right-5 z-20 bg-[#30231E] text-white text-xs px-4 py-2 rounded-full">
                       Out of Stock
                     </span>
                   )}
@@ -522,7 +618,11 @@ export default function ProductDetailPage() {
                           onClick={() =>
                             setQuantity((prev) => Math.max(1, prev - 1))
                           }
-                          disabled={quantity <= 1 || addingToCart}
+                          disabled={
+                            quantity <= 1 ||
+                            addingToCart ||
+                            buyingNow
+                          }
                           className="p-3 text-[#5C3A2E] hover:bg-[#F8F4ED] disabled:opacity-40"
                           aria-label="Decrease quantity"
                         >
@@ -541,7 +641,9 @@ export default function ProductDetailPage() {
                             )
                           }
                           disabled={
-                            quantity >= product.stock || addingToCart
+                            quantity >= product.stock ||
+                            addingToCart ||
+                            buyingNow
                           }
                           className="p-3 text-[#5C3A2E] hover:bg-[#F8F4ED] disabled:opacity-40"
                           aria-label="Increase quantity"
@@ -564,6 +666,7 @@ export default function ProductDetailPage() {
                   disabled={
                     product.stock <= 0 ||
                     addingToCart ||
+                    buyingNow ||
                     quantity > product.stock
                   }
                   className="mt-6 w-full sm:w-auto flex items-center justify-center gap-3 bg-[#5C3A2E] text-white px-8 py-4 rounded-full text-sm font-semibold hover:bg-[#30231E] transition disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
@@ -575,6 +678,23 @@ export default function ProductDetailPage() {
                     : product.stock <= 0
                     ? "Out of Stock"
                     : "Add to Cart"}
+                </button>
+
+                {/* Buy Now Button */}
+                <button
+                  type="button"
+                  onClick={handleBuyNow}
+                  disabled={
+                    product.stock <= 0 ||
+                    buyingNow ||
+                    addingToCart ||
+                    quantity > product.stock
+                  }
+                  className="mt-3 w-full sm:w-auto flex items-center justify-center gap-3 bg-[#B87552] text-white px-8 py-4 rounded-full text-sm font-semibold hover:bg-[#8B6248] transition disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+                >
+                  <ShoppingBag size={19} />
+
+                  {buyingNow ? "Processing..." : "Buy Now"}
                 </button>
 
                 {/* Wishlist Button */}
@@ -879,6 +999,17 @@ export default function ProductDetailPage() {
           />
         </div>
       )}
+
+      {/* Custom Alert Popup */}
+      <CustomAlert
+        isOpen={popup.isOpen}
+        type={popup.type}
+        title={popup.title}
+        message={popup.message}
+        onClose={closePopup}
+        onConfirm={popup.onConfirm}
+        confirmText="Continue"
+      />
     </div>
   );
 }

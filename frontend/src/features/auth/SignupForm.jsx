@@ -9,7 +9,9 @@ import {
   Store,
   Phone,
 } from 'lucide-react';
+
 import FormInput from '../../components/ui/FormInput';
+import CustomAlert from '../../components/ui/CustomAlert';
 import api from '../../config/axiosInstance';
 import { useNavigate } from 'react-router-dom';
 
@@ -31,8 +33,34 @@ const SignupForm = () => {
   });
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+
+  const [popup, setPopup] = useState({
+    isOpen: false,
+    type: 'info',
+    title: '',
+    message: '',
+    onConfirm: null,
+  });
+
+  const showPopup = (type, title, message, onConfirm = null) => {
+    setPopup({
+      isOpen: true,
+      type,
+      title,
+      message,
+      onConfirm,
+    });
+  };
+
+  const closePopup = () => {
+    setPopup({
+      isOpen: false,
+      type: 'info',
+      title: '',
+      message: '',
+      onConfirm: null,
+    });
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -62,15 +90,17 @@ const SignupForm = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    setSuccess('');
 
     // Customer name validation
     if (accountType === 'Customer') {
       const firstNameError = validateName(formData.first_name);
 
       if (firstNameError) {
-        setError(`First Name: ${firstNameError}`);
+        showPopup(
+          'error',
+          'Invalid First Name',
+          firstNameError
+        );
         return;
       }
 
@@ -78,7 +108,11 @@ const SignupForm = () => {
         const lastNameError = validateName(formData.last_name);
 
         if (lastNameError) {
-          setError(`Last Name: ${lastNameError}`);
+          showPopup(
+            'error',
+            'Invalid Last Name',
+            lastNameError
+          );
           return;
         }
       }
@@ -89,21 +123,35 @@ const SignupForm = () => {
       const artisanNameError = validateName(formData.name);
 
       if (artisanNameError) {
-        setError(`Full Name: ${artisanNameError}`);
+        showPopup(
+          'error',
+          'Invalid Full Name',
+          artisanNameError
+        );
         return;
       }
     }
 
     // Password validation
     if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match.');
+      showPopup(
+        'error',
+        'Password Mismatch',
+        'Passwords do not match.'
+      );
       return;
     }
 
     if (formData.password.length < 8) {
-      setError('Password must contain at least 8 characters.');
+      showPopup(
+        'error',
+        'Weak Password',
+        'Password must contain at least 8 characters.'
+      );
       return;
     }
+
+    if (loading) return;
 
     setLoading(true);
 
@@ -120,18 +168,19 @@ const SignupForm = () => {
         });
 
         if (response.status === 201) {
-          setSuccess(
-            'Artisan registration successful. Please verify your email.'
+          showPopup(
+            'success',
+            'Registration Successful',
+            'Artisan registration successful. Please verify your email.',
+            () => {
+              navigate('/verify-otp', {
+                state: {
+                  email: formData.email.trim(),
+                  accountType: 'Artisan',
+                },
+              });
+            }
           );
-
-          setTimeout(() => {
-            navigate('/verify-otp', {
-              state: {
-                email: formData.email.trim(),
-                accountType: 'Artisan',
-              },
-            });
-          }, 1000);
         }
       } else {
         response = await api.post('/auth/register/', {
@@ -142,18 +191,19 @@ const SignupForm = () => {
           last_name: formData.last_name.trim(),
         });
 
-        setSuccess(
-          'Registration successful. Please verify your email.'
+        showPopup(
+          'success',
+          'Registration Successful',
+          'Registration successful. Please verify your email.',
+          () => {
+            navigate('/verify-otp', {
+              state: {
+                email: formData.email.trim(),
+                accountType: 'Customer',
+              },
+            });
+          }
         );
-
-        setTimeout(() => {
-          navigate('/verify-otp', {
-            state: {
-              email: formData.email.trim(),
-              accountType: 'Customer',
-            },
-          });
-        }, 1000);
       }
     } catch (err) {
       const data = err.response?.data;
@@ -171,9 +221,17 @@ const SignupForm = () => {
           })
           .join(' ');
 
-        setError(messages || 'Registration failed. Please try again.');
+        showPopup(
+          'error',
+          'Registration Failed',
+          messages || 'Registration failed. Please try again.'
+        );
       } else {
-        setError('Unable to connect to the server. Please try again.');
+        showPopup(
+          'error',
+          'Connection Error',
+          'Unable to connect to the server. Please try again.'
+        );
       }
 
       console.error('Registration error:', data || err.message);
@@ -183,214 +241,211 @@ const SignupForm = () => {
   };
 
   return (
-    <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-8 border border-gray-100">
+    <>
+      <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-8 border border-gray-100">
 
-      {/* Header */}
-      <div className="text-center mb-8">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-[#FDFBF9] border border-[#E5E0D8] mb-4">
-          <div className="text-[#8C4632] font-bold text-xl">📦</div>
-        </div>
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-[#FDFBF9] border border-[#E5E0D8] mb-4">
+            <div className="text-[#8C4632] font-bold text-xl">📦</div>
+          </div>
 
-        <div className="inline-block px-3 py-1 rounded-full bg-[#F3E8E0] text-[#8C4632] text-[10px] font-bold tracking-wider mb-4 uppercase">
-          <span className="mr-1">●</span>
-          Provenance Certified
-        </div>
+          <div className="inline-block px-3 py-1 rounded-full bg-[#F3E8E0] text-[#8C4632] text-[10px] font-bold tracking-wider mb-4 uppercase">
+            <span className="mr-1">●</span>
+            Provenance Certified
+          </div>
 
-        <h2 className="text-2xl font-serif font-bold text-gray-900 mb-2">
-          Create Your Account
-        </h2>
+          <h2 className="text-2xl font-serif font-bold text-gray-900 mb-2">
+            Create Your Account
+          </h2>
 
-        <p className="text-sm text-gray-500 leading-relaxed px-4">
-          Join Craftopia and discover beautiful handmade products crafted
-          across God's Own Country.
-        </p>
-      </div>
-
-      {/* Account Type */}
-      <div className="mb-6">
-        <label className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-3 block">
-          Register As
-        </label>
-
-        <div className="flex p-1 bg-[#F3E8E0] rounded-lg">
-          {[
-            { id: 'Customer', icon: User },
-            { id: 'Artisan', icon: Store },
-          ].map((type) => (
-            <button
-              key={type.id}
-              type="button"
-              onClick={() => {
-                setAccountType(type.id);
-                setError('');
-                setSuccess('');
-              }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${
-                accountType === type.id
-                  ? 'bg-[#5C4033] text-white shadow-sm'
-                  : 'text-[#5C4033] hover:bg-white/50'
-              }`}
-            >
-              <type.icon size={15} />
-              {type.id}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Form */}
-      <form onSubmit={handleSubmit} className="space-y-4">
-
-        {accountType === 'Customer' ? (
-          <>
-            <FormInput
-              label="Username"
-              name="username"
-              type="text"
-              placeholder="Choose a username"
-              icon={User}
-              value={formData.username}
-              onChange={handleChange}
-            />
-
-            <FormInput
-              label="First Name"
-              name="first_name"
-              type="text"
-              placeholder="Enter your first name"
-              icon={User}
-              value={formData.first_name}
-              onChange={handleChange}
-            />
-
-            <FormInput
-              label="Last Name"
-              name="last_name"
-              type="text"
-              placeholder="Enter your last name"
-              icon={User}
-              value={formData.last_name}
-              onChange={handleChange}
-            />
-          </>
-        ) : (
-          <>
-            <FormInput
-              label="Full Name"
-              name="name"
-              type="text"
-              placeholder="Enter your full name"
-              icon={User}
-              value={formData.name}
-              onChange={handleChange}
-            />
-
-            <FormInput
-              label="Craft Type"
-              name="craft_type"
-              type="text"
-              placeholder="e.g. Handmade Pottery"
-              icon={Store}
-              value={formData.craft_type}
-              onChange={handleChange}
-            />
-
-            <FormInput
-              label="Phone Number"
-              name="phone"
-              type="tel"
-              placeholder="Enter your phone number"
-              icon={Phone}
-              value={formData.phone}
-              onChange={handleChange}
-            />
-          </>
-        )}
-
-        <FormInput
-          label="Email Address"
-          name="email"
-          type="email"
-          placeholder="you@example.com"
-          icon={Mail}
-          value={formData.email}
-          onChange={handleChange}
-        />
-
-        <FormInput
-          label="Password"
-          name="password"
-          type="password"
-          placeholder="Create a password (min. 8 characters)"
-          icon={Lock}
-          value={formData.password}
-          onChange={handleChange}
-        />
-
-        <FormInput
-          label="Confirm Password"
-          name="confirmPassword"
-          type="password"
-          placeholder="Re-enter your password"
-          icon={Lock}
-          value={formData.confirmPassword}
-          onChange={handleChange}
-        />
-
-        {error && (
-          <p className="text-red-600 text-sm mb-4" role="alert">
-            {error}
+          <p className="text-sm text-gray-500 leading-relaxed px-4">
+            Join Craftopia and discover beautiful handmade products crafted
+            across God's Own Country.
           </p>
-        )}
-
-        {success && (
-          <p className="text-green-700 text-sm mb-4" role="status">
-            {success}
-          </p>
-        )}
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full bg-[#8C4632] hover:bg-[#7a3d2c] text-white font-medium py-3 rounded-md transition-colors flex items-center justify-center gap-2 mt-2 shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
-        >
-          {loading
-            ? 'Creating...'
-            : accountType === 'Artisan'
-              ? 'Register as Artisan'
-              : 'Create Customer Account'}
-
-          <ArrowRight size={18} />
-        </button>
-      </form>
-
-      {/* Trust Badges */}
-      <div className="mt-6 p-3 bg-[#FDFBF9] rounded-md border border-[#F3E8E0] flex items-center justify-center gap-4 text-xs text-gray-600">
-        <div className="flex items-center gap-1">
-          <ShieldCheck size={14} className="text-[#8C4632]" />
-          Secure Registration
         </div>
 
-        <span className="text-[#8C4632]">•</span>
+        {/* Account Type */}
+        <div className="mb-6">
+          <label className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-3 block">
+            Register As
+          </label>
 
-        <div className="flex items-center gap-1">
-          <Store size={14} className="text-[#8C4632]" />
-          Handmade with Love
+          <div className="flex p-1 bg-[#F3E8E0] rounded-lg">
+            {[
+              { id: 'Customer', icon: User },
+              { id: 'Artisan', icon: Store },
+            ].map((type) => (
+              <button
+                key={type.id}
+                type="button"
+                onClick={() => setAccountType(type.id)}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${
+                  accountType === type.id
+                    ? 'bg-[#5C4033] text-white shadow-sm'
+                    : 'text-[#5C4033] hover:bg-white/50'
+                }`}
+              >
+                <type.icon size={15} />
+                {type.id}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+
+          {accountType === 'Customer' ? (
+            <>
+              <FormInput
+                label="Username"
+                name="username"
+                type="text"
+                placeholder="Choose a username"
+                icon={User}
+                value={formData.username}
+                onChange={handleChange}
+              />
+
+              <FormInput
+                label="First Name"
+                name="first_name"
+                type="text"
+                placeholder="Enter your first name"
+                icon={User}
+                value={formData.first_name}
+                onChange={handleChange}
+              />
+
+              <FormInput
+                label="Last Name"
+                name="last_name"
+                type="text"
+                placeholder="Enter your last name"
+                icon={User}
+                value={formData.last_name}
+                onChange={handleChange}
+              />
+            </>
+          ) : (
+            <>
+              <FormInput
+                label="Full Name"
+                name="name"
+                type="text"
+                placeholder="Enter your full name"
+                icon={User}
+                value={formData.name}
+                onChange={handleChange}
+              />
+
+              <FormInput
+                label="Craft Type"
+                name="craft_type"
+                type="text"
+                placeholder="e.g. Handmade Pottery"
+                icon={Store}
+                value={formData.craft_type}
+                onChange={handleChange}
+              />
+
+              <FormInput
+                label="Phone Number"
+                name="phone"
+                type="tel"
+                placeholder="Enter your phone number"
+                icon={Phone}
+                value={formData.phone}
+                onChange={handleChange}
+              />
+            </>
+          )}
+
+          <FormInput
+            label="Email Address"
+            name="email"
+            type="email"
+            placeholder="you@example.com"
+            icon={Mail}
+            value={formData.email}
+            onChange={handleChange}
+          />
+
+          <FormInput
+            label="Password"
+            name="password"
+            type="password"
+            placeholder="Create a password (min. 8 characters)"
+            icon={Lock}
+            value={formData.password}
+            onChange={handleChange}
+          />
+
+          <FormInput
+            label="Confirm Password"
+            name="confirmPassword"
+            type="password"
+            placeholder="Re-enter your password"
+            icon={Lock}
+            value={formData.confirmPassword}
+            onChange={handleChange}
+          />
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-[#8C4632] hover:bg-[#7a3d2c] text-white font-medium py-3 rounded-md transition-colors flex items-center justify-center gap-2 mt-2 shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
+          >
+            {loading
+              ? 'Creating...'
+              : accountType === 'Artisan'
+                ? 'Register as Artisan'
+                : 'Create Customer Account'}
+
+            <ArrowRight size={18} />
+          </button>
+        </form>
+
+        {/* Trust Badges */}
+        <div className="mt-6 p-3 bg-[#FDFBF9] rounded-md border border-[#F3E8E0] flex items-center justify-center gap-4 text-xs text-gray-600">
+          <div className="flex items-center gap-1">
+            <ShieldCheck size={14} className="text-[#8C4632]" />
+            Secure Registration
+          </div>
+
+          <span className="text-[#8C4632]">•</span>
+
+          <div className="flex items-center gap-1">
+            <Store size={14} className="text-[#8C4632]" />
+            Handmade with Love
+          </div>
+        </div>
+
+        {/* Login Link */}
+        <div className="mt-6 text-center text-sm text-gray-600">
+          Already have an account?{' '}
+          <button
+            type="button"
+            onClick={() => navigate('/login')}
+            className="text-[#8C4632] font-semibold hover:underline"
+          >
+            Login
+          </button>
         </div>
       </div>
 
-      {/* Login Link */}
-      <div className="mt-6 text-center text-sm text-gray-600">
-        Already have an account?{' '}
-        <button
-          type="button"
-          onClick={() => navigate('/login')}
-          className="text-[#8C4632] font-semibold hover:underline"
-        >
-          Login
-        </button>
-      </div>
-    </div>
+      {/* Custom Popup */}
+      <CustomAlert
+        isOpen={popup.isOpen}
+        type={popup.type}
+        title={popup.title}
+        message={popup.message}
+        onClose={closePopup}
+        onConfirm={popup.onConfirm}
+        confirmText="Continue"
+      />
+    </>
   );
 };
 

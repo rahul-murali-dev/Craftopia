@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -10,6 +11,7 @@ import {
 } from "lucide-react";
 import Header from "../components/layout/Header";
 import Footer from "../components/layout/Footer";
+import CustomAlert from "../components/ui/CustomAlert";
 import api from "../config/axiosInstance";
 
 const IMAGE_BASE_URL = "http://localhost:8000";
@@ -17,6 +19,7 @@ const IMAGE_BASE_URL = "http://localhost:8000";
 export default function ProductListPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
 
@@ -27,9 +30,12 @@ export default function ProductListPage() {
     () => searchParams.get("search") || "",
   );
 
-  const [search, setSearch] = useState(() => searchParams.get("search") || "");
+  const [search, setSearch] = useState(
+    () => searchParams.get("search") || "",
+  );
 
   const [ordering, setOrdering] = useState("-created_at");
+
   const [selectedCategory, setSelectedCategory] = useState(
     () => searchParams.get("category") || "",
   );
@@ -46,6 +52,37 @@ export default function ProductListPage() {
     next: null,
     previous: null,
   });
+
+  // Custom Alert State
+  const [popup, setPopup] = useState({
+    isOpen: false,
+    type: "info",
+    title: "",
+    message: "",
+    onConfirm: null,
+  });
+
+  // Show Custom Alert
+  const showPopup = (type, title, message, onConfirm = null) => {
+    setPopup({
+      isOpen: true,
+      type,
+      title,
+      message,
+      onConfirm,
+    });
+  };
+
+  // Close Custom Alert
+  const closePopup = () => {
+    setPopup({
+      isOpen: false,
+      type: "info",
+      title: "",
+      message: "",
+      onConfirm: null,
+    });
+  };
 
   // Fetch Categories
   const fetchCategories = async () => {
@@ -121,15 +158,15 @@ export default function ProductListPage() {
       setLoading(false);
     }
   };
-   // Read Search Keyword from URL
-useEffect(() => {
-  const searchValue = searchParams.get("search") || "";
 
-  setSearchInput(searchValue);
-  setSearch(searchValue);
-  setPage(1);
-}, [searchParams]);
+  // Read Search Keyword from URL
+  useEffect(() => {
+    const searchValue = searchParams.get("search") || "";
 
+    setSearchInput(searchValue);
+    setSearch(searchValue);
+    setPage(1);
+  }, [searchParams]);
 
   // Initial Fetch
   useEffect(() => {
@@ -222,9 +259,13 @@ useEffect(() => {
         });
 
         if (response.data.wishlist_item) {
-          setWishlistItems((prev) => [response.data.wishlist_item, ...prev]);
+          setWishlistItems((prev) => [
+            response.data.wishlist_item,
+            ...prev,
+          ]);
         }
       }
+
       window.dispatchEvent(new Event("wishlistUpdated"));
     } catch (err) {
       console.error("Wishlist update error:", err);
@@ -232,7 +273,9 @@ useEffect(() => {
       if (err.response?.status === 401) {
         navigate("/login");
       } else {
-        alert(
+        showPopup(
+          "error",
+          "Wishlist Update Failed",
           err.response?.data?.message ||
             err.response?.data?.error ||
             "Unable to update wishlist. Please try again.",
@@ -586,6 +629,17 @@ useEffect(() => {
       </main>
 
       <Footer />
+
+      {/* Custom Alert */}
+      <CustomAlert
+        isOpen={popup.isOpen}
+        type={popup.type}
+        title={popup.title}
+        message={popup.message}
+        onClose={closePopup}
+        onConfirm={popup.onConfirm}
+        confirmText="Continue"
+      />
     </div>
   );
 }

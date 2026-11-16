@@ -3,15 +3,30 @@ from django.db import models
 from django.conf import settings
 from users.models import ArtisanProfile
 
+
+from django.db import models
+from django.db.models.functions import Lower
+
+
 class Category(models.Model):
-    name = models.CharField(max_length=100, unique=True)
+    name = models.CharField(max_length=100)
     description = models.TextField(blank=True, default="")
     is_deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                Lower("name"),
+                name="unique_category_name_case_insensitive"
+            )
+        ]
+
     def __str__(self):
         return self.name
+
+
 
 
 class Product(models.Model):
@@ -30,13 +45,19 @@ class Product(models.Model):
     name = models.CharField(max_length=200)
     description = models.TextField()
     price = models.DecimalField(max_digits=10, decimal_places=2)
+
     discount_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         null=True,
         blank=True
     )
+
     stock = models.PositiveIntegerField(default=0)
+
+    # Payment settings controlled by admin
+    allow_online_payment = models.BooleanField(default=True)
+    allow_cod = models.BooleanField(default=True)
 
     is_published = models.BooleanField(default=False)
     is_deleted = models.BooleanField(default=False)

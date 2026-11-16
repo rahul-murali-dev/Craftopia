@@ -26,6 +26,15 @@ export default function Header() {
   const [wishlistCount, setWishlistCount] = useState(0);
   const [cartCount, setCartCount] = useState(0);
 
+  // Show My Orders only for logged-in customers
+  const isCustomer =
+    localStorage.getItem("userRole")?.toUpperCase() === "CUSTOMER";
+
+  const visibleNavLinks =
+    isLoggedIn && isCustomer
+      ? [...navLinks, { label: "My Orders", href: "/my-orders" }]
+      : navLinks;
+
   // Fetch Wishlist Count
   const fetchWishlistCount = useCallback(async () => {
     if (!localStorage.getItem("access")) {
@@ -62,11 +71,9 @@ export default function Header() {
 
       const cart = response.data;
 
-      // Prefer backend total_items value
       if (typeof cart.total_items === "number") {
         setCartCount(cart.total_items);
       } else {
-        // Fallback: calculate total quantity from cart items
         const items = cart.items || [];
 
         const totalQuantity = items.reduce(
@@ -102,10 +109,7 @@ export default function Header() {
     window.addEventListener("wishlistUpdated", handleWishlistUpdate);
 
     return () => {
-      window.removeEventListener(
-        "wishlistUpdated",
-        handleWishlistUpdate
-      );
+      window.removeEventListener("wishlistUpdated", handleWishlistUpdate);
     };
   }, [fetchWishlistCount]);
 
@@ -118,10 +122,7 @@ export default function Header() {
     window.addEventListener("cartUpdated", handleCartUpdate);
 
     return () => {
-      window.removeEventListener(
-        "cartUpdated",
-        handleCartUpdate
-      );
+      window.removeEventListener("cartUpdated", handleCartUpdate);
     };
   }, [fetchCartCount]);
 
@@ -197,7 +198,7 @@ export default function Header() {
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-1">
-            {navLinks.map((link) => {
+            {visibleNavLinks.map((link) => {
               const isActive = activePath === link.href;
 
               return (
@@ -420,7 +421,7 @@ export default function Header() {
         {mobileOpen && (
           <nav className="md:hidden pb-4 border-t border-[#5C3A2E]/10 pt-3 flex flex-col gap-1">
 
-            {navLinks.map((link) => {
+            {visibleNavLinks.map((link) => {
               const isActive = activePath === link.href;
 
               return (

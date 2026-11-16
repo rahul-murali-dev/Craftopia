@@ -20,6 +20,8 @@ export default function ProductForm() {
     discount_price: "",
     stock: "",
     is_published: false,
+    allow_online_payment: true,
+    allow_cod: true,
   });
 
   const [selectedImages, setSelectedImages] = useState([]);
@@ -66,6 +68,8 @@ export default function ProductForm() {
         discount_price: product.discount_price || "",
         stock: product.stock,
         is_published: product.is_published,
+        allow_online_payment: product.allow_online_payment ?? true,
+        allow_cod: product.allow_cod ?? true,
       });
 
       setExistingImages(product.images || []);
@@ -180,6 +184,15 @@ export default function ProductForm() {
 
     if (!formData.category) {
       alert("Please select a category.");
+      return;
+    }
+
+    // At least one payment method must be enabled.
+    if (
+      !formData.allow_online_payment &&
+      !formData.allow_cod
+    ) {
+      alert("Please select at least one payment method.");
       return;
     }
 
@@ -369,6 +382,48 @@ export default function ProductForm() {
               required
               className="w-full border rounded-lg p-3"
             />
+          </div>
+        </div>
+
+        {/* Payment Methods */}
+        <div className="rounded-xl border border-[#E5E0D8] bg-[#FDF9F6] p-4">
+          <h3 className="mb-1 font-semibold text-[#5C3A2E]">
+            Payment Methods
+          </h3>
+
+          <p className="mb-4 text-sm text-[#8B6248]">
+            Select how customers can pay for this product.
+            At least one payment method is required.
+          </p>
+
+          <div className="space-y-3">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                name="allow_online_payment"
+                checked={formData.allow_online_payment}
+                onChange={handleChange}
+                className="h-4 w-4 accent-[#5C3A2E]"
+              />
+
+              <span className="text-sm font-medium text-[#30231E]">
+                Allow Online Payment (Razorpay)
+              </span>
+            </label>
+
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                name="allow_cod"
+                checked={formData.allow_cod}
+                onChange={handleChange}
+                className="h-4 w-4 accent-[#5C3A2E]"
+              />
+
+              <span className="text-sm font-medium text-[#30231E]">
+                Allow Cash on Delivery (COD)
+              </span>
+            </label>
           </div>
         </div>
 

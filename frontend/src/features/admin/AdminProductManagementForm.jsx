@@ -11,6 +11,8 @@ const initialForm = {
   price: "",
   discount_price: "",
   stock: "",
+  allow_online_payment: true,
+  allow_cod: true,
   is_published: false,
 };
 
@@ -143,6 +145,8 @@ export default function AdminProductManagementForm() {
         price: product.price || "",
         discount_price: product.discount_price || "",
         stock: product.stock ?? "",
+        allow_online_payment: product.allow_online_payment ?? true,
+        allow_cod: product.allow_cod ?? true,
         is_published: product.is_published,
       });
 
@@ -208,6 +212,11 @@ export default function AdminProductManagementForm() {
 
     if (cropImageUrl) {
       setFormError("Please finish or cancel image cropping before saving.");
+      return;
+    }
+
+    if (!form.allow_online_payment && !form.allow_cod) {
+      setFormError("At least one payment method must be enabled.");
       return;
     }
 
@@ -613,6 +622,32 @@ export default function AdminProductManagementForm() {
                     {viewProduct.is_published ? "Published" : "Unpublished"}
                   </p>
                 </div>
+
+                <div>
+                  <p className="text-sm text-gray-500">Online Payment</p>
+                  <p
+                    className={`font-medium ${
+                      viewProduct.allow_online_payment
+                        ? "text-green-700"
+                        : "text-red-600"
+                    }`}
+                  >
+                    {viewProduct.allow_online_payment ? "Enabled" : "Disabled"}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-sm text-gray-500">Cash on Delivery</p>
+                  <p
+                    className={`font-medium ${
+                      viewProduct.allow_cod
+                        ? "text-green-700"
+                        : "text-red-600"
+                    }`}
+                  >
+                    {viewProduct.allow_cod ? "Enabled" : "Disabled"}
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -863,7 +898,10 @@ export default function AdminProductManagementForm() {
 
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                       {images.map((image, index) => (
-                        <div key={`${image.name}-${index}`} className="relative">
+                        <div
+                          key={`${image.name}-${index}`}
+                          className="relative"
+                        >
                           <img
                             src={imagePreviewUrls[index]}
                             alt={`Cropped product ${index + 1}`}
@@ -881,6 +919,68 @@ export default function AdminProductManagementForm() {
                       ))}
                     </div>
                   </div>
+                )}
+              </div>
+
+              {/* Payment Options */}
+              <div className="rounded-lg border border-gray-200 bg-[#F8F4ED] p-4">
+                <h3 className="font-semibold text-[#30231E]">
+                  Payment Options
+                </h3>
+
+                <p className="mt-1 text-sm text-gray-500">
+                  Choose which payment methods customers can use for this
+                  product.
+                </p>
+
+                <div className="mt-4 space-y-4">
+                  {/* Online Payment */}
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      name="allow_online_payment"
+                      checked={form.allow_online_payment}
+                      onChange={handleChange}
+                      className="mt-1 h-4 w-4 accent-[#5C3A2E]"
+                    />
+
+                    <span>
+                      <span className="block font-medium text-[#30231E]">
+                        Allow Online Payment
+                      </span>
+
+                      <span className="text-sm text-gray-500">
+                        Customers can pay online using Razorpay.
+                      </span>
+                    </span>
+                  </label>
+
+                  {/* Cash on Delivery */}
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      name="allow_cod"
+                      checked={form.allow_cod}
+                      onChange={handleChange}
+                      className="mt-1 h-4 w-4 accent-[#5C3A2E]"
+                    />
+
+                    <span>
+                      <span className="block font-medium text-[#30231E]">
+                        Allow Cash on Delivery
+                      </span>
+
+                      <span className="text-sm text-gray-500">
+                        Customers can pay when the product is delivered.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+
+                {!form.allow_online_payment && !form.allow_cod && (
+                  <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-600">
+                    At least one payment method must be enabled.
+                  </p>
                 )}
               </div>
 

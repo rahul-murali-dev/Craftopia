@@ -1,7 +1,16 @@
+
 from rest_framework import serializers
-from .models import Category, Product, ProductImage, Wishlist
+
+from .models import (
+    Category,
+    Product,
+    ProductImage,
+    Wishlist,
+    Cart,
+    CartItem,
+)
 from users.models import ArtisanProfile
-from .models import Cart, CartItem
+
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -21,6 +30,19 @@ class CategorySerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def validate_name(self, value):
+        categories = Category.objects.filter(name__iexact=value)
+
+        if self.instance:
+            categories = categories.exclude(id=self.instance.id)
+
+        if categories.exists():
+            raise serializers.ValidationError(
+                "A category with this name already exists."
+            )
+
+        return value
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
@@ -68,6 +90,8 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             "price",
             "discount_price",
             "stock",
+            "allow_online_payment",
+            "allow_cod",
             "is_published",
             "images",
             "created_at",
@@ -94,6 +118,8 @@ class ProductSerializer(serializers.ModelSerializer):
             "price",
             "discount_price",
             "stock",
+            "allow_online_payment",
+            "allow_cod",
             "is_published",
             "is_deleted",
             "images",
@@ -111,6 +137,34 @@ class ProductSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
+
+        if self.instance is None:
+            request = self.context.get("request")
+            images = request.FILES.getlist("images") if request else []
+
+            if len(images) < 3:
+                raise serializers.ValidationError({
+                    "images": "Please upload at least 3 product images."
+                })
+
+        # At least one payment method must be enabled
+        allow_online = attrs.get(
+            "allow_online_payment",
+            self.instance.allow_online_payment if self.instance else True
+        )
+
+        allow_cod = attrs.get(
+            "allow_cod",
+            self.instance.allow_cod if self.instance else True
+        )
+
+        if not allow_online and not allow_cod:
+            raise serializers.ValidationError({
+                "payment_methods": (
+                    "At least one payment method must be enabled."
+                )
+            })
+
         price = attrs.get(
             "price",
             self.instance.price if self.instance else None
@@ -124,7 +178,9 @@ class ProductSerializer(serializers.ModelSerializer):
         if discount_price is not None and price is not None:
             if discount_price >= price:
                 raise serializers.ValidationError({
-                    "discount_price": "Discount price must be less than regular price."
+                    "discount_price": (
+                        "Discount price must be less than regular price."
+                    )
                 })
 
         return attrs
@@ -146,9 +202,13 @@ class CustomerProductListSerializer(serializers.ModelSerializer):
             "price",
             "discount_price",
             "stock",
+            "allow_online_payment",
+            "allow_cod",
             "images",
             "created_at",
         ]
+
+
 class CartItemSerializer(serializers.ModelSerializer):
     product = CustomerProductListSerializer(read_only=True)
 
@@ -193,6 +253,8 @@ class CartItemSerializer(serializers.ModelSerializer):
             and product.stock > 0
             and obj.quantity <= product.stock
         )
+
+
 class CartSerializer(serializers.ModelSerializer):
     items = CartItemSerializer(many=True, read_only=True)
 
@@ -217,14 +279,15 @@ class CartSerializer(serializers.ModelSerializer):
         return sum(
             (item.subtotal for item in obj.items.all()),
             start=0
-        )    
+        )
+
 
 class WishlistSerializer(serializers.ModelSerializer):
     product = CustomerProductListSerializer(read_only=True)
 
     class Meta:
         model = Wishlist
-        fields = ["id", "product", "created_at"]    
+        fields = ["id", "product", "created_at"]
 
 
 class AdminProductSerializer(serializers.ModelSerializer):
@@ -249,6 +312,8 @@ class AdminProductSerializer(serializers.ModelSerializer):
             "price",
             "discount_price",
             "stock",
+            "allow_online_payment",
+            "allow_cod",
             "is_published",
             "is_deleted",
             "images",
@@ -265,6 +330,34 @@ class AdminProductSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
+
+        if self.instance is None:
+            request = self.context.get("request")
+            images = request.FILES.getlist("images") if request else []
+
+            if len(images) < 3:
+                raise serializers.ValidationError({
+                    "images": "Please upload at least 3 product images."
+                })
+
+        # At least one payment method must be enabled
+        allow_online = attrs.get(
+            "allow_online_payment",
+            self.instance.allow_online_payment if self.instance else True
+        )
+
+        allow_cod = attrs.get(
+            "allow_cod",
+            self.instance.allow_cod if self.instance else True
+        )
+
+        if not allow_online and not allow_cod:
+            raise serializers.ValidationError({
+                "payment_methods": (
+                    "At least one payment method must be enabled."
+                )
+            })
+
         price = attrs.get(
             "price",
             self.instance.price if self.instance else None

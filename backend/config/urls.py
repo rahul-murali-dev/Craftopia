@@ -72,6 +72,7 @@ urlpatterns = [
 ),
 
     path("api/products/", include("product.urls")),
+    path("api/orders/", include("orders.urls")),
 ]
 if settings.DEBUG:
     urlpatterns += static(

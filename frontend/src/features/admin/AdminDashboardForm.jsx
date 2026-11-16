@@ -32,6 +32,10 @@ export const NAV_ITEMS = [
   { label: "Category Management", icon: Tags, path: "/admin/categories" },
   { label: "Order Management", icon: ShoppingBag, path: "/admin/orders" },
   { label: "Payment Management", icon: CreditCard, path: "/admin/payments" },
+  { label: "Stock Management", icon: Package, path: "/admin/stock"},
+  {label: "Returns Management",icon: RefreshCw, path: "/admin/returns"},
+  
+  
 ];
 
 /* ----------------------------------

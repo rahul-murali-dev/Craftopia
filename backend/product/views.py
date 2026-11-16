@@ -876,3 +876,87 @@ class AdminProductImageDeleteView(generics.DestroyAPIView):
             product__id=self.kwargs["product_pk"],
             product__is_deleted=False
         )
+
+class AdminStockManagementView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+
+        products = Product.objects.filter(
+            is_deleted=False
+        ).select_related(
+            "category",
+            "artisan",
+        ).order_by("-updated_at")
+
+        search = request.query_params.get("search", "").strip()
+
+        if search:
+            products = products.filter(
+                name__icontains=search
+            )
+
+        result = []
+
+        for product in products:
+            result.append({
+                "id": product.id,
+                "name": product.name,
+                "category": product.category.name,
+                "artisan": product.artisan.business_name,
+                "price": product.price,
+                "stock": product.stock,
+                "is_published": product.is_published,
+            })
+
+        return Response(
+            result,
+            status=status.HTTP_200_OK
+        )
+
+    def patch(self, request, product_id):
+
+        new_stock = request.data.get("stock")
+
+        if new_stock is None:
+            return Response(
+                {"error": "Stock quantity is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            new_stock = int(new_stock)
+
+            if new_stock < 0:
+                raise ValueError
+
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Stock must be a non-negative integer."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            product = Product.objects.get(
+                id=product_id,
+                is_deleted=False
+            )
+
+        except Product.DoesNotExist:
+            return Response(
+                {"error": "Product not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        product.stock = new_stock
+        product.save(update_fields=["stock", "updated_at"])
+
+        return Response(
+            {
+                "message": "Product stock updated successfully.",
+                "product_id": product.id,
+                "product_name": product.name,
+                "stock": product.stock,
+            },
+            status=status.HTTP_200_OK
+        )

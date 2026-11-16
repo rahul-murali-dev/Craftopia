@@ -122,6 +122,7 @@ export default function CartPage() {
 
   const items = cart?.items || [];
 
+
 const validateCheckout = async () => {
   try {
     setCheckoutLoading(true);
@@ -129,11 +130,22 @@ const validateCheckout = async () => {
     const response = await api.post("/products/cart/validate/");
 
     if (response.data.valid) {
-      alert(
-        `Cart validated successfully!\nTotal Items: ${response.data.total_items}\nCart Total: ₹${formatPrice(response.data.cart_total)}\n\nCheckout flow is not implemented yet.`
-      );
-    }
+      navigate("/checkout");
+    } else {
+      const errors = response.data.errors;
 
+      if (errors && errors.length > 0) {
+        alert(
+          errors
+            .map((item) => `${item.product_name}: ${item.error}`)
+            .join("\n")
+        );
+
+        await fetchCart();
+      } else {
+        alert("Your cart is not valid. Please check your products.");
+      }
+    }
   } catch (err) {
     console.error("Checkout validation error:", err);
 
@@ -158,11 +170,11 @@ const validateCheckout = async () => {
         "Unable to validate cart. Please try again."
       );
     }
-
   } finally {
     setCheckoutLoading(false);
   }
 };
+
 
 
   const hasInvalidItems = items.some(
