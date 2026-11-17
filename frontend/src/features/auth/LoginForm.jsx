@@ -15,6 +15,7 @@ import FormInput from '../../components/ui/FormInput';
 import CustomAlert from '../../components/ui/CustomAlert';
 import api from '../../config/axiosInstance';
 import { useNavigate } from 'react-router-dom';
+import { GoogleLogin } from '@react-oauth/google';
 
 const LoginForm = () => {
   const navigate = useNavigate();
@@ -67,6 +68,7 @@ const LoginForm = () => {
     }));
   };
 
+  // Normal Customer / Artisan Login
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -175,6 +177,93 @@ const LoginForm = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Google Login
+  const handleGoogleSuccess = async (credentialResponse) => {
+    if (loading) return;
+
+    const credential = credentialResponse?.credential;
+
+    if (!credential) {
+      showPopup(
+        'error',
+        'Google Login Failed',
+        'Google authentication did not provide a valid credential. Please try again.'
+      );
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await api.post(
+        '/auth/google-login/',
+        {
+          credential: credential,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const data = response.data;
+
+      // Save JWT tokens.
+      localStorage.setItem('access', data.access);
+      localStorage.setItem('refresh', data.refresh);
+      localStorage.setItem('userRole', data.user.role);
+
+      showPopup(
+        'success',
+        'Google Login Successful',
+        'Welcome to Craftopia!',
+        () => navigate('/home')
+      );
+    } catch (error) {
+      const status = error.response?.status;
+      const errorMessage = error.response?.data?.error;
+
+      if (status === 403) {
+        showPopup(
+          'error',
+          'Access Denied',
+          errorMessage ||
+            'This Google account cannot access customer login.'
+        );
+      } else if (status === 401) {
+        showPopup(
+          'error',
+          'Google Verification Failed',
+          errorMessage ||
+            'Google authentication failed. Please try again.'
+        );
+      } else {
+        showPopup(
+          'error',
+          'Google Login Failed',
+          errorMessage ||
+            'Unable to login with Google. Please try again.'
+        );
+      }
+
+      console.error(
+        'Google login failed:',
+        error.response?.data || error.message
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleError = () => {
+    showPopup(
+      'error',
+      'Google Login Failed',
+      'Unable to connect with Google. Please try again.'
+    );
   };
 
   return (
@@ -332,33 +421,40 @@ const LoginForm = () => {
           </button>
         </form>
 
-        {/* Divider */}
-        <div className="relative my-8">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-200" />
-          </div>
+        {/* Google Login - Customer Only */}
+        {accountType === 'Customer' && (
+          <>
+            {/* Divider */}
+            <div className="relative my-8">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-200" />
+              </div>
 
-          <div className="relative flex justify-center text-xs">
-            <span className="px-4 bg-[#FDFBF9] text-gray-400">
-              or continue with
-            </span>
-          </div>
-        </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="px-4 bg-[#FDFBF9] text-gray-400">
+                  or continue with
+                </span>
+              </div>
+            </div>
 
-        {/* Google Login - UI only */}
-        <button
-          type="button"
-          onClick={() =>
-            showPopup(
-              'info',
-              'Google Login',
-              'Google login is not connected yet.'
-            )
-          }
-          className="w-full bg-white border border-gray-200 text-gray-700 font-medium py-3 rounded-md hover:bg-gray-50 transition flex items-center justify-center gap-3 shadow-sm"
-        >
-          Continue with Google
-        </button>
+            {/* Google Authentication Button */}
+            <div
+              className={`w-full flex justify-center ${
+                loading ? 'opacity-50 pointer-events-none' : ''
+              }`}
+            >
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                theme="outline"
+                size="large"
+                shape="rectangular"
+                text="continue_with"
+                width="384"
+              />
+            </div>
+          </>
+        )}
 
         {/* Customer Sign-up Link */}
         <div className="mt-8 text-center text-sm text-gray-600">

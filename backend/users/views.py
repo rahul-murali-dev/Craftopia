@@ -43,7 +43,8 @@ from .serializers import (
     ArtisanProfileDetailSerializer,
     ChangePasswordSerializer,
 )
-
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2 import id_token
 
 User = get_user_model()
 
@@ -1222,4 +1223,117 @@ class AddressDetailView(generics.RetrieveUpdateDestroyAPIView):
             ).update(is_default=False)
 
         serializer.save()
+
+
+# ==========================================
+# GOOGLE CUSTOMER LOGIN
+# ==========================================
+
+class GoogleLoginView(APIView):
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
+
+    def post(self, request):
+        credential = request.data.get("credential")
+
+        if not credential:
+            return Response(
+                {"error": "Google credential is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        client_id = settings.GOOGLE_CLIENT_ID
+
+        if not client_id:
+            return Response(
+                {"error": "Google authentication is not configured."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        try:
+            google_user = id_token.verify_oauth2_token(
+                credential,
+                GoogleRequest(),
+                audience=client_id
+            )
+
+        except Exception:
+            return Response(
+                {"error": "Invalid Google authentication. Please try again."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        if google_user.get("email_verified") is not True:
+            return Response(
+                {"error": "Google email is not verified."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        email = google_user.get("email", "").strip().lower()
+        google_id = google_user.get("sub")
+
+        if not email or not google_id:
+            return Response(
+                {"error": "Google account information is incomplete."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = User.objects.filter(
+                email__iexact=email
+            ).first()
+
+            if user:
+                if user.role != User.Role.CUSTOMER:
+                    return Response(
+                        {
+                            "error": "Please use the correct login for your account type."
+                        },
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+
+                if not user.is_active:
+                    return Response(
+                        {"error": "This account is inactive."},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+
+                # Google has verified ownership of this email.
+                if not user.email_verified:
+                    user.email_verified = True
+                    user.save(update_fields=["email_verified"])
+
+            else:
+                user = User.objects.create_user(
+                    username=f"google_{google_id}",
+                    email=email,
+                    first_name=google_user.get("given_name", ""),
+                    last_name=google_user.get("family_name", ""),
+                    role=User.Role.CUSTOMER,
+                    email_verified=True,
+                )
+
+            refresh = RefreshToken.for_user(user)
+
+            return Response(
+                {
+                    "message": "Google login successful.",
+                    "user": {
+                        "id": user.id,
+                        "username": user.username,
+                        "email": user.email,
+                        "role": user.role,
+                    },
+                    "access": str(refresh.access_token),
+                    "refresh": str(refresh),
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except Exception:
+            return Response(
+                {"error": "Unable to complete Google login."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
