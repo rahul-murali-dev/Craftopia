@@ -28,7 +28,7 @@ from .models import (
     ArtisanOrderResponse,
     ArtisanRefund,
 )
-
+from django.core.paginator import Paginator
 from .serializers import (
     CheckoutSerializer,
     OrderSerializer,
@@ -1595,6 +1595,7 @@ class InvoicePDFView(APIView):
         return response
 
 
+
 class AdminOrderListView(APIView):
     permission_classes = [IsAdminUser]
 
@@ -1607,8 +1608,11 @@ class AdminOrderListView(APIView):
             "payments"
         ).order_by("-created_at")
 
+        # Search
         search = request.query_params.get("search", "").strip()
-        order_status = request.query_params.get("status", "").strip().upper()
+        order_status = request.query_params.get(
+            "status", ""
+        ).strip().upper()
 
         if search:
             orders = orders.filter(
@@ -1619,6 +1623,7 @@ class AdminOrderListView(APIView):
                 Q(phone__icontains=search)
             )
 
+        # Status filter
         if order_status:
             valid_statuses = [
                 choice[0] for choice in Order.Status.choices
@@ -1632,9 +1637,61 @@ class AdminOrderListView(APIView):
 
             orders = orders.filter(status=order_status)
 
+        # Sorting
+        sort_by = request.query_params.get(
+            "sort_by", "created_at"
+        )
+
+        allowed_sort_fields = [
+            "created_at",
+            "total_amount",
+            "status",
+            "order_number",
+        ]
+
+        if sort_by not in allowed_sort_fields:
+            return Response(
+                {"error": "Invalid sorting field."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        sort_order = request.query_params.get(
+            "sort_order", "desc"
+        ).lower()
+
+        if sort_order not in ["asc", "desc"]:
+            return Response(
+                {"error": "Invalid sorting order."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if sort_order == "desc":
+            sort_by = f"-{sort_by}"
+
+        orders = orders.order_by(sort_by, "-id")
+
+        # Pagination
+        try:
+            page = max(1, int(request.query_params.get("page", 1)))
+            page_size = int(
+                request.query_params.get("page_size", 10)
+            )
+
+            if page_size < 1 or page_size > 50:
+                raise ValueError
+
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid pagination parameters."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        paginator = Paginator(orders, page_size)
+        current_page = paginator.get_page(page)
+
         result = []
 
-        for order in orders:
+        for order in current_page.object_list:
 
             result.append({
                 "id": order.id,
@@ -1661,11 +1718,15 @@ class AdminOrderListView(APIView):
                 "items_count": order.items.count(),
             })
 
-        return Response(
-            result,
-            status=status.HTTP_200_OK
-        )
-
+        return Response({
+            "count": paginator.count,
+            "total_pages": paginator.num_pages,
+            "current_page": current_page.number,
+            "page_size": page_size,
+            "next": current_page.has_next(),
+            "previous": current_page.has_previous(),
+            "results": result,
+        }, status=status.HTTP_200_OK)
 
 class AdminOrderDetailView(APIView):
     permission_classes = [IsAdminUser]
@@ -2577,4 +2638,72 @@ class ArtisanRejectOrderView(APIView):
             },
             status=status.HTTP_200_OK
         )
-    
+class MarkCODPaymentCollectedView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, payment_id):
+
+        try:
+            with transaction.atomic():
+
+                payment = Payment.objects.select_for_update().select_related(
+                    "order"
+                ).get(id=payment_id)
+
+                if payment.payment_method != Payment.Method.COD:
+                    return Response(
+                        {"error": "This is not a COD payment."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                if payment.status == Payment.Status.SUCCESS:
+                    return Response(
+                        {"error": "This COD payment is already collected."},
+                        status=status.HTTP_409_CONFLICT
+                    )
+
+                if payment.status != Payment.Status.PENDING:
+                    return Response(
+                        {"error": "This payment cannot be marked as collected."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                if payment.order.status != Order.Status.DELIVERED:
+                    return Response(
+                        {
+                            "error": (
+                                "COD payment can be collected only "
+                                "after the order is delivered."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                payment.status = Payment.Status.SUCCESS
+                payment.cod_collected_at = timezone.now()
+                payment.cod_collected_by = request.user
+
+                payment.save(
+                    update_fields=[
+                        "status",
+                        "cod_collected_at",
+                        "cod_collected_by",
+                    ]
+                )
+
+            return Response(
+                {
+                    "message": "COD payment marked as collected successfully.",
+                    "payment_id": payment.id,
+                    "status": payment.status,
+                    "cod_collected_at": payment.cod_collected_at,
+                    "cod_collected_by": request.user.username,
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except Payment.DoesNotExist:
+            return Response(
+                {"error": "Payment not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )    

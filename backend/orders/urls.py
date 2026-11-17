@@ -1,7 +1,28 @@
 
-
 from django.urls import path
-from .views import AdminOrderDetailView, AdminOrderListView, AdminOrderStatusUpdateView, AdminPaymentListView, AdminReturnRequestListView, AdminReturnRequestUpdateView, ArtisanAcceptOrderView, ArtisanOrderDetailView, ArtisanOrderListView, ArtisanRejectOrderView, BuyNowCheckoutView, CancelOrderView, CheckoutView, InvoicePDFView, MyOrdersView, OrderDetailView, RetryPaymentView, ReturnRequestView, VerifyPaymentView
+
+from .views import (
+    AdminOrderDetailView,
+    AdminOrderListView,
+    AdminOrderStatusUpdateView,
+    AdminPaymentListView,
+    AdminReturnRequestListView,
+    AdminReturnRequestUpdateView,
+   
+    ArtisanOrderDetailView,
+    ArtisanOrderListView,
+   
+    BuyNowCheckoutView,
+    CancelOrderView,
+    CheckoutView,
+    InvoicePDFView,
+    MarkCODPaymentCollectedView,
+    MyOrdersView,
+    OrderDetailView,
+    RetryPaymentView,
+    ReturnRequestView,
+    VerifyPaymentView,
+)
 
 urlpatterns = [
     path(
@@ -15,88 +36,84 @@ urlpatterns = [
         name="my-orders",
     ),
     path(
-    "<int:order_id>/",
-    OrderDetailView.as_view(),
-    name="order-detail",
-),
-path(
-    "<int:order_id>/cancel/",
-    CancelOrderView.as_view(),
-    name="cancel-order",
-),
-path(
-    "<int:order_id>/return/",
-    ReturnRequestView.as_view(),
-    name="return-request",
-),
-path(
-    "<int:order_id>/invoice/",
-    InvoicePDFView.as_view(),
-    name="order-invoice",
-),
-path(
-    "<int:order_id>/verify-payment/",
-    VerifyPaymentView.as_view(),
-    name="verify-payment",
-),
-path(
-    "<int:order_id>/retry-payment/",
-    RetryPaymentView.as_view(),
-    name="retry-payment",
-),
-path(
-    "admin/orders/",
-    AdminOrderListView.as_view(),
-    name="admin-order-list",
-),
-path(
-    "admin/orders/<int:order_id>/",
-    AdminOrderDetailView.as_view(),
-    name="admin-order-detail",
-),
-path(
-    "admin/orders/<int:order_id>/status/",
-    AdminOrderStatusUpdateView.as_view(),
-    name="admin-order-status-update",
-),
-path(
-    "admin/returns/",
-    AdminReturnRequestListView.as_view(),
-    name="admin-return-list",
-),
-path(
-    "admin/returns/<int:return_id>/",
-    AdminReturnRequestUpdateView.as_view(),
-    name="admin-return-update",
-),
-path(
-    "buy-now/",
-    BuyNowCheckoutView.as_view(),
-    name="buy-now",
-),
-path(
-    "admin/payments/",
-    AdminPaymentListView.as_view(),
-    name="admin-payment-list"
-),
-path(
-    "artisan/orders/",
-    ArtisanOrderListView.as_view(),
-    name="artisan-order-list",
-),
-path(
-    "artisan/orders/<int:order_id>/",
-    ArtisanOrderDetailView.as_view(),
-    name="artisan-order-detail",
-),
-path(
-    "artisan/orders/<int:order_id>/accept/",
-    ArtisanAcceptOrderView.as_view(),
-    name="artisan-order-accept",
-),
-path(
-    "artisan/orders/<int:order_id>/reject/",
-    ArtisanRejectOrderView.as_view(),
-    name="artisan-order-reject",
-),
+        "<int:order_id>/",
+        OrderDetailView.as_view(),
+        name="order-detail",
+    ),
+    path(
+        "<int:order_id>/cancel/",
+        CancelOrderView.as_view(),
+        name="cancel-order",
+    ),
+    path(
+        "<int:order_id>/return/",
+        ReturnRequestView.as_view(),
+        name="return-request",
+    ),
+    path(
+        "<int:order_id>/invoice/",
+        InvoicePDFView.as_view(),
+        name="order-invoice",
+    ),
+    path(
+        "<int:order_id>/verify-payment/",
+        VerifyPaymentView.as_view(),
+        name="verify-payment",
+    ),
+    path(
+        "<int:order_id>/retry-payment/",
+        RetryPaymentView.as_view(),
+        name="retry-payment",
+    ),
+    path(
+        "admin/orders/",
+        AdminOrderListView.as_view(),
+        name="admin-order-list",
+    ),
+    path(
+        "admin/orders/<int:order_id>/",
+        AdminOrderDetailView.as_view(),
+        name="admin-order-detail",
+    ),
+    path(
+        "admin/orders/<int:order_id>/status/",
+        AdminOrderStatusUpdateView.as_view(),
+        name="admin-order-status-update",
+    ),
+    path(
+        "admin/returns/",
+        AdminReturnRequestListView.as_view(),
+        name="admin-return-list",
+    ),
+    path(
+        "admin/returns/<int:return_id>/",
+        AdminReturnRequestUpdateView.as_view(),
+        name="admin-return-update",
+    ),
+    path(
+        "buy-now/",
+        BuyNowCheckoutView.as_view(),
+        name="buy-now",
+    ),
+    path(
+        "admin/payments/",
+        AdminPaymentListView.as_view(),
+        name="admin-payment-list",
+    ),
+    path(
+        "admin/payments/<int:payment_id>/collect-cod/",
+        MarkCODPaymentCollectedView.as_view(),
+        name="admin-collect-cod-payment",
+    ),
+    path(
+        "artisan/orders/",
+        ArtisanOrderListView.as_view(),
+        name="artisan-order-list",
+    ),
+    path(
+        "artisan/orders/<int:order_id>/",
+        ArtisanOrderDetailView.as_view(),
+        name="artisan-order-detail",
+    ),
+    
 ]

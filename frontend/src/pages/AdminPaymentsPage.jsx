@@ -4,9 +4,10 @@ import {
   CreditCard,
   Search,
   RefreshCw,
-  CalendarDays,
   CheckCircle,
   Clock,
+  Wallet,
+  ShieldCheck,
 } from "lucide-react";
 
 import api from "../config/axiosInstance";
@@ -21,13 +22,17 @@ const formatPrice = (price) =>
 const formatDate = (date) => {
   if (!date) return "-";
 
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) return "-";
+
   return new Intl.DateTimeFormat("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(date));
+  }).format(parsedDate);
 };
 
 const PAYMENT_STATUS_STYLES = {
@@ -58,6 +63,10 @@ function AdminPaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [collectingPaymentId, setCollectingPaymentId] = useState(null);
+  const [actionMessage, setActionMessage] = useState("");
+  const [actionError, setActionError] = useState("");
+
   const fetchPayments = async (
     searchValue = search,
     methodValue = method,
@@ -81,10 +90,9 @@ function AdminPaymentsPage() {
         params.status = statusValue;
       }
 
-      const response = await api.get(
-        "/orders/admin/payments/",
-        { params }
-      );
+      const response = await api.get("/orders/admin/payments/", {
+        params,
+      });
 
       const data = response.data;
 
@@ -96,8 +104,8 @@ function AdminPaymentsPage() {
 
       setError(
         err.response?.data?.error ||
-        err.response?.data?.detail ||
-        "Unable to load payments. Please try again."
+          err.response?.data?.detail ||
+          "Unable to load payments. Please try again."
       );
     } finally {
       setLoading(false);
@@ -110,15 +118,43 @@ function AdminPaymentsPage() {
 
   const handleSearch = (event) => {
     event.preventDefault();
-    fetchPayments();
+    fetchPayments(search, method, status);
   };
 
   const handleClearFilters = () => {
     setSearch("");
     setMethod("");
     setStatus("");
-
     fetchPayments("", "", "");
+  };
+
+  const handleMarkCODCollected = async (paymentId) => {
+    try {
+      setCollectingPaymentId(paymentId);
+      setActionMessage("");
+      setActionError("");
+
+      const response = await api.post(
+        `/orders/admin/payments/${paymentId}/collect-cod/`
+      );
+
+      setActionMessage(
+        response.data?.message ||
+          "COD payment marked as collected successfully."
+      );
+
+      await fetchPayments();
+    } catch (err) {
+      console.error("COD collection error:", err);
+
+      setActionError(
+        err.response?.data?.error ||
+          err.response?.data?.detail ||
+          "Unable to update COD payment. Please try again."
+      );
+    } finally {
+      setCollectingPaymentId(null);
+    }
   };
 
   const displayStatus = (value) =>
@@ -132,12 +168,30 @@ function AdminPaymentsPage() {
     (payment) => payment.status === "PENDING"
   ).length;
 
+  const failedPayments = payments.filter(
+    (payment) =>
+      payment.status === "FAILED" ||
+      payment.status === "REFUND_FAILED"
+  ).length;
+
   const totalAmount = payments
     .filter((payment) => payment.status === "SUCCESS")
     .reduce(
       (total, payment) => total + Number(payment.amount || 0),
       0
     );
+
+  const getCustomerName = (customer) =>
+    `${customer?.first_name || ""} ${
+      customer?.last_name || ""
+    }`.trim() ||
+    customer?.username ||
+    "Customer";
+
+  const getMethodLabel = (payment) =>
+    payment.payment_method === "RAZORPAY"
+      ? "Razorpay"
+      : "Cash on Delivery";
 
   return (
     <div className="min-h-screen bg-[#F8F4ED]">
@@ -156,7 +210,7 @@ function AdminPaymentsPage() {
             </h1>
 
             <p className="mt-2 text-sm text-[#8B6248]">
-              View customer payments and transaction details.
+              Monitor customer payments, transaction records and refund details.
             </p>
           </div>
 
@@ -167,7 +221,9 @@ function AdminPaymentsPage() {
             className="flex items-center gap-2 rounded-lg border border-[#5C3A2E]/15 bg-white px-4 py-3 text-sm font-medium text-[#5C3A2E] hover:bg-[#F8F4ED] disabled:opacity-50"
           >
             <RefreshCw
-              className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+              className={`h-4 w-4 ${
+                loading ? "animate-spin" : ""
+              }`}
             />
             Refresh
           </button>
@@ -177,72 +233,74 @@ function AdminPaymentsPage() {
 
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
 
-          <div className="rounded-xl border border-[#5C3A2E]/10 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#B87552]/15">
-                <CreditCard className="h-5 w-5 text-[#5C3A2E]" />
-              </div>
+          <SummaryCard
+            icon={<CreditCard className="h-5 w-5 text-[#5C3A2E]" />}
+            label="Payments Found"
+            value={payments.length}
+            iconBg="bg-[#B87552]/15"
+          />
 
-              <div>
-                <p className="text-sm text-[#8B6248]">
-                  Payments Found
-                </p>
-                <p className="text-2xl font-bold text-[#30231E]">
-                  {payments.length}
-                </p>
-              </div>
-            </div>
+          <SummaryCard
+            icon={<CheckCircle className="h-5 w-5 text-green-700" />}
+            label="Successful Payments"
+            value={successfulPayments}
+            iconBg="bg-green-100"
+          />
+
+          <SummaryCard
+            icon={<Clock className="h-5 w-5 text-amber-700" />}
+            label="Pending Payments"
+            value={pendingPayments}
+            iconBg="bg-amber-100"
+          />
+
+          <SummaryCard
+            icon={<Wallet className="h-5 w-5 text-[#5C3A2E]" />}
+            label="Successful Amount"
+            value={formatPrice(totalAmount)}
+            iconBg="bg-[#B87552]/15"
+          />
+
+        </section>
+
+        {/* Additional Summary */}
+
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+
+          <div className="rounded-xl border border-[#5C3A2E]/10 bg-white p-4">
+            <p className="text-sm text-[#8B6248]">
+              Razorpay Transactions
+            </p>
+            <p className="mt-1 text-xl font-bold text-[#30231E]">
+              {
+                payments.filter(
+                  (payment) =>
+                    payment.payment_method === "RAZORPAY"
+                ).length
+              }
+            </p>
           </div>
 
-          <div className="rounded-xl border border-[#5C3A2E]/10 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-green-100">
-                <CheckCircle className="h-5 w-5 text-green-700" />
-              </div>
-
-              <div>
-                <p className="text-sm text-[#8B6248]">
-                  Successful Payments
-                </p>
-                <p className="text-2xl font-bold text-[#30231E]">
-                  {successfulPayments}
-                </p>
-              </div>
-            </div>
+          <div className="rounded-xl border border-[#5C3A2E]/10 bg-white p-4">
+            <p className="text-sm text-[#8B6248]">
+              COD Orders
+            </p>
+            <p className="mt-1 text-xl font-bold text-[#30231E]">
+              {
+                payments.filter(
+                  (payment) => payment.payment_method === "COD"
+                ).length
+              }
+            </p>
           </div>
 
-          <div className="rounded-xl border border-[#5C3A2E]/10 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-amber-100">
-                <Clock className="h-5 w-5 text-amber-700" />
-              </div>
-
-              <div>
-                <p className="text-sm text-[#8B6248]">
-                  Pending Payments
-                </p>
-                <p className="text-2xl font-bold text-[#30231E]">
-                  {pendingPayments}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-[#5C3A2E]/10 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#B87552]/15">
-                <CalendarDays className="h-5 w-5 text-[#5C3A2E]" />
-              </div>
-
-              <div>
-                <p className="text-sm text-[#8B6248]">
-                  Successful Amount
-                </p>
-                <p className="text-xl font-bold text-[#30231E]">
-                  {formatPrice(totalAmount)}
-                </p>
-              </div>
-            </div>
+          <div className="rounded-xl border border-[#5C3A2E]/10 bg-white p-4">
+            <p className="text-sm text-[#8B6248]">
+              Failed Transactions
+            </p>
+            <p className="mt-1 text-xl font-bold text-red-700">
+              {failedPayments}
+            </p>
           </div>
 
         </section>
@@ -254,7 +312,7 @@ function AdminPaymentsPage() {
             onSubmit={handleSearch}
             className="grid grid-cols-1 gap-4 md:grid-cols-3"
           >
-            <div className="md:col-span-1">
+            <div>
               <label className="mb-2 block text-sm font-medium text-[#30231E]">
                 Search Payments
               </label>
@@ -265,7 +323,9 @@ function AdminPaymentsPage() {
                 <input
                   type="text"
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) =>
+                    setSearch(event.target.value)
+                  }
                   placeholder="Order number, customer or transaction ID..."
                   className="w-full py-3 text-sm outline-none"
                 />
@@ -279,7 +339,9 @@ function AdminPaymentsPage() {
 
               <select
                 value={method}
-                onChange={(event) => setMethod(event.target.value)}
+                onChange={(event) =>
+                  setMethod(event.target.value)
+                }
                 className="w-full rounded-lg border border-gray-300 px-3 py-3 text-sm outline-none focus:border-[#8B6248]"
               >
                 <option value="">All Methods</option>
@@ -295,7 +357,9 @@ function AdminPaymentsPage() {
 
               <select
                 value={status}
-                onChange={(event) => setStatus(event.target.value)}
+                onChange={(event) =>
+                  setStatus(event.target.value)
+                }
                 className="w-full rounded-lg border border-gray-300 px-3 py-3 text-sm outline-none focus:border-[#8B6248]"
               >
                 <option value="">All Statuses</option>
@@ -332,7 +396,9 @@ function AdminPaymentsPage() {
 
         {!loading && error && (
           <div className="rounded-xl border border-red-200 bg-red-50 p-5">
-            <p className="font-medium text-red-700">{error}</p>
+            <p className="font-medium text-red-700">
+              {error}
+            </p>
 
             <button
               type="button"
@@ -344,16 +410,31 @@ function AdminPaymentsPage() {
           </div>
         )}
 
-        {/* Payments Table */}
+        {/* COD Collection Feedback */}
+
+        {actionMessage && (
+          <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-700">
+            {actionMessage}
+          </div>
+        )}
+
+        {actionError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
+            {actionError}
+          </div>
+        )}
+
+        {/* Payment Table */}
 
         <section className="overflow-hidden rounded-xl border border-[#5C3A2E]/10 bg-white shadow-sm">
+
           <div className="border-b border-[#5C3A2E]/10 p-5">
             <h2 className="font-serif text-lg font-semibold text-[#30231E]">
               Customer Payments
             </h2>
 
             <p className="mt-1 text-xs text-[#8B6248]">
-              Payment records are displayed with the newest first.
+              Payment attempts are displayed with the newest first.
             </p>
           </div>
 
@@ -378,7 +459,8 @@ function AdminPaymentsPage() {
             </div>
           ) : !error ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1250px] text-sm">
+              <table className="w-full min-w-[1650px] text-sm">
+
                 <thead>
                   <tr className="border-b border-[#5C3A2E]/10 bg-[#F8F4ED]/60 text-left text-xs text-[#8B6248]">
                     <th className="px-5 py-4 font-medium">Payment ID</th>
@@ -389,16 +471,19 @@ function AdminPaymentsPage() {
                     <th className="px-5 py-4 font-medium">Method</th>
                     <th className="px-5 py-4 font-medium">Payment Status</th>
                     <th className="px-5 py-4 font-medium">Order Status</th>
+                    <th className="px-5 py-4 font-medium">Transaction ID</th>
+                    <th className="px-5 py-4 font-medium">Refund ID</th>
                     <th className="px-5 py-4 font-medium">Verification</th>
+                    <th className="px-5 py-4 font-medium">Action</th>
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-[#5C3A2E]/5">
                   {payments.map((payment) => {
-                    const customerName =
-                      `${payment.customer?.first_name || ""} ${payment.customer?.last_name || ""}`.trim() ||
-                      payment.customer?.username ||
-                      "Customer";
+                    const canCollectCOD =
+                      payment.payment_method === "COD" &&
+                      payment.status === "PENDING" &&
+                      payment.order?.order_status === "DELIVERED";
 
                     return (
                       <tr
@@ -411,7 +496,7 @@ function AdminPaymentsPage() {
 
                         <td className="px-5 py-4">
                           <p className="font-medium text-[#30231E]">
-                            #{payment.order?.id}
+                            #{payment.order?.id || "-"}
                           </p>
 
                           <p className="mt-1 max-w-[190px] truncate text-xs text-gray-500">
@@ -421,7 +506,7 @@ function AdminPaymentsPage() {
 
                         <td className="px-5 py-4">
                           <p className="font-medium text-[#30231E]">
-                            {customerName}
+                            {getCustomerName(payment.customer)}
                           </p>
 
                           <p className="mt-1 text-xs text-[#8B6248]">
@@ -439,9 +524,7 @@ function AdminPaymentsPage() {
 
                         <td className="px-5 py-4">
                           <span className="whitespace-nowrap rounded-full border border-[#5C3A2E]/15 bg-[#F8F4ED] px-3 py-1 text-xs font-medium text-[#5C3A2E]">
-                            {payment.payment_method === "RAZORPAY"
-                              ? "Razorpay"
-                              : "Cash on Delivery"}
+                            {getMethodLabel(payment)}
                           </span>
                         </td>
 
@@ -464,15 +547,47 @@ function AdminPaymentsPage() {
 
                         <td className="px-5 py-4">
                           <span className="whitespace-nowrap text-xs font-medium text-[#5C3A2E]">
-                            {displayStatus(payment.order?.order_status)}
+                            {displayStatus(
+                              payment.order?.order_status
+                            )}
                           </span>
+                        </td>
+
+                        <td className="px-5 py-4">
+                          {payment.razorpay_payment_id ? (
+                            <p className="max-w-[180px] break-all font-mono text-xs text-[#5C3A2E]">
+                              {payment.razorpay_payment_id}
+                            </p>
+                          ) : (
+                            <span className="text-xs text-gray-400">
+                              -
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="px-5 py-4">
+                          {payment.razorpay_refund_id ? (
+                            <div>
+                              <p className="max-w-[180px] break-all font-mono text-xs text-purple-700">
+                                {payment.razorpay_refund_id}
+                              </p>
+
+                              <span className="mt-1 inline-block text-xs text-purple-600">
+                                {displayStatus(payment.status)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">
+                              No refund
+                            </span>
+                          )}
                         </td>
 
                         <td className="px-5 py-4">
                           {payment.payment_method === "RAZORPAY" ? (
                             payment.signature_verified ? (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700">
-                                <CheckCircle className="h-4 w-4" />
+                                <ShieldCheck className="h-4 w-4" />
                                 Verified
                               </span>
                             ) : (
@@ -483,6 +598,37 @@ function AdminPaymentsPage() {
                           ) : (
                             <span className="text-xs text-gray-500">
                               Not applicable
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="px-5 py-4">
+                          {canCollectCOD ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleMarkCODCollected(payment.id)
+                              }
+                              disabled={collectingPaymentId !== null}
+                              className="inline-flex min-w-[150px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#5C3A2E] px-3 py-2 text-xs font-semibold text-white hover:bg-[#30231E] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {collectingPaymentId === payment.id ? (
+                                <>
+                                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                  Updating...
+                                </>
+                              ) : (
+                                "Mark as Collected"
+                              )}
+                            </button>
+                          ) : payment.payment_method === "COD" &&
+                            payment.status === "PENDING" ? (
+                            <span className="whitespace-nowrap text-xs text-amber-700">
+                              Awaiting delivery
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-400">
+                              -
                             </span>
                           )}
                         </td>
@@ -499,6 +645,25 @@ function AdminPaymentsPage() {
           Craftopia Admin Panel
         </p>
       </main>
+    </div>
+  );
+}
+
+function SummaryCard({ icon, label, value, iconBg }) {
+  return (
+    <div className="rounded-xl border border-[#5C3A2E]/10 bg-white p-5 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className={`flex h-11 w-11 items-center justify-center rounded-full ${iconBg}`}>
+          {icon}
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-sm text-[#8B6248]">{label}</p>
+          <p className="break-words text-2xl font-bold text-[#30231E]">
+            {value}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

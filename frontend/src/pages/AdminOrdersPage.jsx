@@ -7,6 +7,9 @@ import {
   RefreshCw,
   Eye,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUpDown,
 } from "lucide-react";
 
 import api from "../config/axiosInstance";
@@ -50,6 +53,8 @@ const ORDER_STATUSES = [
   "CANCELLED",
 ];
 
+const PAGE_SIZE = 10;
+
 function AdminOrdersPage() {
   const navigate = useNavigate();
 
@@ -57,18 +62,33 @@ function AdminOrdersPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
 
+  const [sortBy, setSortBy] = useState("created_at");
+  const [sortOrder, setSortOrder] = useState("desc");
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalOrders, setTotalOrders] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const fetchOrders = async (
     searchValue = search,
-    statusValue = status
+    statusValue = status,
+    pageValue = currentPage,
+    sortField = sortBy,
+    sortDirection = sortOrder
   ) => {
     try {
       setLoading(true);
       setError("");
 
-      const params = {};
+      const params = {
+        page: pageValue,
+        page_size: PAGE_SIZE,
+        sort_by: sortField,
+        sort_order: sortDirection,
+      };
 
       if (searchValue.trim()) {
         params.search = searchValue.trim();
@@ -86,10 +106,14 @@ function AdminOrdersPage() {
 
       if (Array.isArray(data)) {
         setOrders(data);
-      } else if (Array.isArray(data?.results)) {
-        setOrders(data.results);
+        setTotalOrders(data.length);
+        setTotalPages(1);
+        setCurrentPage(1);
       } else {
-        setOrders([]);
+        setOrders(data?.results || []);
+        setTotalOrders(data?.count || 0);
+        setTotalPages(data?.total_pages || 1);
+        setCurrentPage(data?.current_page || pageValue);
       }
     } catch (err) {
       console.error("Admin orders error:", err);
@@ -101,29 +125,58 @@ function AdminOrdersPage() {
       );
 
       setOrders([]);
+      setTotalOrders(0);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchOrders("", "");
+    fetchOrders("", "", 1, "created_at", "desc");
   }, []);
 
   const handleSearch = (event) => {
     event.preventDefault();
-    fetchOrders(search, status);
+    setCurrentPage(1);
+    fetchOrders(search, status, 1);
   };
 
   const handleStatusChange = (value) => {
     setStatus(value);
-    fetchOrders(search, value);
+    setCurrentPage(1);
+    fetchOrders(search, value, 1);
+  };
+
+  const handleSortChange = (field) => {
+    const direction =
+      field === sortBy
+        ? sortOrder === "asc"
+          ? "desc"
+          : "asc"
+        : "desc";
+
+    setSortBy(field);
+    setSortOrder(direction);
+    setCurrentPage(1);
+
+    fetchOrders(search, status, 1, field, direction);
+  };
+
+  const handlePageChange = (page) => {
+    if (page < 1 || page > totalPages || loading) return;
+
+    setCurrentPage(page);
+    fetchOrders(search, status, page);
   };
 
   const clearFilters = () => {
     setSearch("");
     setStatus("");
-    fetchOrders("", "");
+    setSortBy("created_at");
+    setSortOrder("desc");
+    setCurrentPage(1);
+
+    fetchOrders("", "", 1, "created_at", "desc");
   };
 
   const displayStatus = (value) =>
@@ -151,7 +204,9 @@ function AdminOrdersPage() {
 
           <button
             type="button"
-            onClick={() => fetchOrders(search, status)}
+            onClick={() =>
+              fetchOrders(search, status, currentPage)
+            }
             disabled={loading}
             className="flex items-center gap-2 rounded-lg border border-[#5C3A2E]/15 bg-white px-4 py-3 text-sm font-medium text-[#5C3A2E] hover:bg-[#F8F4ED] disabled:opacity-50"
           >
@@ -176,7 +231,7 @@ function AdminOrdersPage() {
                 </p>
 
                 <p className="text-2xl font-bold text-[#30231E]">
-                  {orders.length}
+                  {totalOrders}
                 </p>
               </div>
             </div>
@@ -201,7 +256,7 @@ function AdminOrdersPage() {
           </div>
         </section>
 
-        {/* Search and Filter */}
+        {/* Search and Filters */}
         <section className="rounded-xl border border-[#5C3A2E]/10 bg-white p-5 shadow-sm">
           <form
             onSubmit={handleSearch}
@@ -247,6 +302,50 @@ function AdminOrdersPage() {
               </select>
             </div>
 
+            <div className="md:col-span-3">
+              <label className="mb-2 block text-sm font-medium text-[#30231E]">
+                Sort Orders
+              </label>
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <select
+                  value={sortBy}
+                  onChange={(event) =>
+                    handleSortChange(event.target.value)
+                  }
+                  className="rounded-lg border border-gray-300 px-3 py-3 text-sm outline-none focus:border-[#8B6248]"
+                >
+                  <option value="created_at">Order Date</option>
+                  <option value="total_amount">Total Amount</option>
+                  <option value="status">Status</option>
+                  <option value="order_number">Order Number</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const direction =
+                      sortOrder === "asc" ? "desc" : "asc";
+
+                    setSortOrder(direction);
+                    setCurrentPage(1);
+
+                    fetchOrders(
+                      search,
+                      status,
+                      1,
+                      sortBy,
+                      direction
+                    );
+                  }}
+                  className="flex items-center justify-center gap-2 rounded-lg border border-[#8B6248]/40 px-4 py-3 text-sm font-medium text-[#5C3A2E] hover:bg-[#F8F4ED]"
+                >
+                  <ArrowUpDown className="h-4 w-4" />
+                  {sortOrder === "asc" ? "Ascending" : "Descending"}
+                </button>
+              </div>
+            </div>
+
             <div className="flex flex-wrap gap-3 md:col-span-3">
               <button
                 type="submit"
@@ -259,7 +358,7 @@ function AdminOrdersPage() {
               <button
                 type="button"
                 onClick={clearFilters}
-                disabled={loading && !search && !status}
+                disabled={loading}
                 className="rounded-lg border border-[#8B6248] px-6 py-2.5 text-sm font-semibold text-[#5C3A2E] hover:bg-[#F8F4ED] disabled:opacity-50"
               >
                 Clear Filters
@@ -275,7 +374,9 @@ function AdminOrdersPage() {
 
             <button
               type="button"
-              onClick={() => fetchOrders(search, status)}
+              onClick={() =>
+                fetchOrders(search, status, currentPage)
+              }
               className="mt-3 text-sm font-semibold text-red-700 underline"
             >
               Try Again
@@ -291,7 +392,7 @@ function AdminOrdersPage() {
             </h2>
 
             <p className="mt-1 text-xs text-[#8B6248]">
-              Orders are displayed with the newest first.
+              Showing {orders.length} of {totalOrders} orders.
             </p>
           </div>
 
@@ -316,102 +417,137 @@ function AdminOrdersPage() {
               </p>
             </div>
           ) : !error ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[950px] text-sm">
-                <thead>
-                  <tr className="border-b border-[#5C3A2E]/10 bg-[#F8F4ED]/60 text-left text-xs text-[#8B6248]">
-                    <th className="px-5 py-4 font-medium">Order ID</th>
-                    <th className="px-5 py-4 font-medium">Customer</th>
-                    <th className="px-5 py-4 font-medium">Date</th>
-                    <th className="px-5 py-4 font-medium">Items</th>
-                    <th className="px-5 py-4 font-medium">Total</th>
-                    <th className="px-5 py-4 font-medium">Status</th>
-                    <th className="px-5 py-4 text-center font-medium">
-                      Action
-                    </th>
-                  </tr>
-                </thead>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[950px] text-sm">
+                  <thead>
+                    <tr className="border-b border-[#5C3A2E]/10 bg-[#F8F4ED]/60 text-left text-xs text-[#8B6248]">
+                      <th className="px-5 py-4 font-medium">Order ID</th>
+                      <th className="px-5 py-4 font-medium">Customer</th>
+                      <th className="px-5 py-4 font-medium">Date</th>
+                      <th className="px-5 py-4 font-medium">Items</th>
+                      <th className="px-5 py-4 font-medium">Total</th>
+                      <th className="px-5 py-4 font-medium">Status</th>
+                      <th className="px-5 py-4 text-center font-medium">
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
 
-                <tbody className="divide-y divide-[#5C3A2E]/5">
-                  {orders.map((order) => {
-                    const customerName =
-                      `${order.customer?.first_name || ""} ${
-                        order.customer?.last_name || ""
-                      }`.trim() ||
-                      order.customer?.username ||
-                      "Customer";
+                  <tbody className="divide-y divide-[#5C3A2E]/5">
+                    {orders.map((order) => {
+                      const customerName =
+                        `${order.customer?.first_name || ""} ${
+                          order.customer?.last_name || ""
+                        }`.trim() ||
+                        order.customer?.username ||
+                        "Customer";
 
-                    return (
-                      <tr
-                        key={order.id}
-                        className="transition hover:bg-[#F8F4ED]/50"
-                      >
-                        <td className="px-5 py-4">
-                          <p className="font-mono text-xs font-medium text-[#5C3A2E]">
-                            #{order.id}
-                          </p>
+                      return (
+                        <tr
+                          key={order.id}
+                          className="transition hover:bg-[#F8F4ED]/50"
+                        >
+                          <td className="px-5 py-4">
+                            <p className="font-mono text-xs font-medium text-[#5C3A2E]">
+                              #{order.id}
+                            </p>
 
-                          <p className="mt-1 max-w-[190px] truncate text-xs text-gray-500">
-                            {order.order_number}
-                          </p>
-                        </td>
+                            <p className="mt-1 max-w-[190px] truncate text-xs text-gray-500">
+                              {order.order_number}
+                            </p>
+                          </td>
 
-                        <td className="px-5 py-4">
-                          <p className="font-medium text-[#30231E]">
-                            {customerName}
-                          </p>
+                          <td className="px-5 py-4">
+                            <p className="font-medium text-[#30231E]">
+                              {customerName}
+                            </p>
 
-                          <p className="mt-1 text-xs text-[#8B6248]">
-                            {order.customer?.email || "-"}
-                          </p>
+                            <p className="mt-1 text-xs text-[#8B6248]">
+                              {order.customer?.email || "-"}
+                            </p>
 
-                          <p className="text-xs text-[#8B6248]">
-                            {order.phone || "-"}
-                          </p>
-                        </td>
+                            <p className="text-xs text-[#8B6248]">
+                              {order.phone || "-"}
+                            </p>
+                          </td>
 
-                        <td className="whitespace-nowrap px-5 py-4 text-[#8B6248]">
-                          {formatDate(order.created_at)}
-                        </td>
+                          <td className="whitespace-nowrap px-5 py-4 text-[#8B6248]">
+                            {formatDate(order.created_at)}
+                          </td>
 
-                        <td className="px-5 py-4 text-[#30231E]">
-                          {order.items_count ?? 0}
-                        </td>
+                          <td className="px-5 py-4 text-[#30231E]">
+                            {order.items_count ?? 0}
+                          </td>
 
-                        <td className="whitespace-nowrap px-5 py-4 font-semibold text-[#30231E]">
-                          {formatPrice(order.total_amount)}
-                        </td>
+                          <td className="whitespace-nowrap px-5 py-4 font-semibold text-[#30231E]">
+                            {formatPrice(order.total_amount)}
+                          </td>
 
-                        <td className="px-5 py-4">
-                          <span
-                            className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium ${
-                              STATUS_STYLES[order.status] ||
-                              "border-gray-200 bg-gray-50 text-gray-600"
-                            }`}
-                          >
-                            {displayStatus(order.status)}
-                          </span>
-                        </td>
+                          <td className="px-5 py-4">
+                            <span
+                              className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium ${
+                                STATUS_STYLES[order.status] ||
+                                "border-gray-200 bg-gray-50 text-gray-600"
+                              }`}
+                            >
+                              {displayStatus(order.status)}
+                            </span>
+                          </td>
 
-                        <td className="px-5 py-4 text-center">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              navigate(`/admin/orders/${order.id}`)
-                            }
-                            title="View Order Details"
-                            className="inline-flex items-center gap-2 rounded-lg border border-[#8B6248]/30 px-3 py-2 text-xs font-semibold text-[#5C3A2E] transition hover:bg-[#F8F4ED]"
-                          >
-                            <Eye className="h-4 w-4" />
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                          <td className="px-5 py-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                navigate(`/admin/orders/${order.id}`)
+                              }
+                              title="View Order Details"
+                              className="inline-flex items-center gap-2 rounded-lg border border-[#8B6248]/30 px-3 py-2 text-xs font-semibold text-[#5C3A2E] transition hover:bg-[#F8F4ED]"
+                            >
+                              <Eye className="h-4 w-4" />
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              <div className="flex flex-col items-center justify-between gap-4 border-t border-[#5C3A2E]/10 p-5 sm:flex-row">
+                <p className="text-sm text-[#8B6248]">
+                  Page {currentPage} of {totalPages}
+                </p>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePageChange(currentPage - 1)
+                    }
+                    disabled={currentPage <= 1 || loading}
+                    className="flex items-center gap-1 rounded-lg border border-[#8B6248]/30 px-4 py-2 text-sm font-medium text-[#5C3A2E] hover:bg-[#F8F4ED] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Previous
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePageChange(currentPage + 1)
+                    }
+                    disabled={currentPage >= totalPages || loading}
+                    className="flex items-center gap-1 rounded-lg border border-[#8B6248]/30 px-4 py-2 text-sm font-medium text-[#5C3A2E] hover:bg-[#F8F4ED] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </>
           ) : null}
         </section>
 
