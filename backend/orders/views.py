@@ -986,8 +986,15 @@ class MyOrdersView(APIView):
         search = request.query_params.get("search", "").strip()
 
         if search:
+            order_search = Q(order_number__icontains=search)
+
+            short_number = search.upper().removeprefix("CRP-")
+
+            if short_number.isdigit():
+                order_search |= Q(id=int(short_number))
+
             orders = orders.filter(
-                Q(order_number__icontains=search) |
+                order_search |
                 Q(status__icontains=search)
             )
 
@@ -999,7 +1006,6 @@ class MyOrdersView(APIView):
             serializer.data,
             status=status.HTTP_200_OK
         )
-
 
 class OrderDetailView(APIView):
     permission_classes = [IsAuthenticated]
@@ -1466,7 +1472,7 @@ class InvoicePDFView(APIView):
         elements.append(Spacer(1, 15))
 
         order_data = [
-            ["Order Number", str(order.order_number)],
+            ["Order Number", f"CRP-{order.id:05d}"],
             ["Order Date", order.created_at.strftime("%d-%m-%Y")],
             ["Order Status", order.status],
         ]
@@ -1615,8 +1621,15 @@ class AdminOrderListView(APIView):
         ).strip().upper()
 
         if search:
+            order_search = Q(order_number__icontains=search)
+
+            short_number = search.upper().removeprefix("CRP-")
+
+            if short_number.isdigit():
+                order_search |= Q(id=int(short_number))
+
             orders = orders.filter(
-                Q(order_number__icontains=search) |
+                order_search |
                 Q(user__username__icontains=search) |
                 Q(user__email__icontains=search) |
                 Q(full_name__icontains=search) |
@@ -1695,7 +1708,7 @@ class AdminOrderListView(APIView):
 
             result.append({
                 "id": order.id,
-                "order_number": str(order.order_number),
+                "order_number": f"CRP-{order.id:05d}",
                 "customer": {
                     "id": order.user.id,
                     "username": order.user.username,
@@ -1727,7 +1740,7 @@ class AdminOrderListView(APIView):
             "previous": current_page.has_previous(),
             "results": result,
         }, status=status.HTTP_200_OK)
-
+    
 class AdminOrderDetailView(APIView):
     permission_classes = [IsAdminUser]
 
@@ -1775,7 +1788,7 @@ class AdminOrderDetailView(APIView):
         return Response(
             {
                 "id": order.id,
-                "order_number": str(order.order_number),
+                "order_number": f"CRP-{order.id:05d}",
                 "customer": {
                     "id": order.user.id,
                     "username": order.user.username,
@@ -1862,7 +1875,7 @@ class AdminOrderStatusUpdateView(APIView):
             {
                 "message": "Order status updated successfully.",
                 "order_id": order.id,
-                "order_number": str(order.order_number),
+               "order_number": f"CRP-{order.id:05d}",
                 "status": order.status,
             },
             status=status.HTTP_200_OK
@@ -1887,9 +1900,17 @@ class AdminPaymentListView(APIView):
             "status", ""
         ).strip().upper()
 
+        # Search
         if search:
+            order_search = Q(order__order_number__icontains=search)
+
+            short_number = search.upper().removeprefix("CRP-")
+
+            if short_number.isdigit():
+                order_search |= Q(order__id=int(short_number))
+
             payments = payments.filter(
-                Q(order__order_number__icontains=search) |
+                order_search |
                 Q(order__user__username__icontains=search) |
                 Q(order__user__email__icontains=search) |
                 Q(order__full_name__icontains=search) |
@@ -1898,6 +1919,7 @@ class AdminPaymentListView(APIView):
                 Q(razorpay_payment_id__icontains=search)
             )
 
+        # Payment method filter
         if payment_method:
             valid_methods = [
                 choice[0] for choice in Payment.Method.choices
@@ -1913,6 +1935,7 @@ class AdminPaymentListView(APIView):
                 payment_method=payment_method
             )
 
+        # Payment status filter
         if payment_status:
             valid_statuses = [
                 choice[0] for choice in Payment.Status.choices
@@ -1939,7 +1962,7 @@ class AdminPaymentListView(APIView):
                 "id": payment.id,
                 "order": {
                     "id": order.id,
-                    "order_number": str(order.order_number),
+                    "order_number": f"CRP-{order.id:05d}",
                     "total_amount": order.total_amount,
                     "order_status": order.status,
                 },
@@ -1966,7 +1989,6 @@ class AdminPaymentListView(APIView):
             result,
             status=status.HTTP_200_OK
         )
-
 
 # ---------------------------------------------------------
 # ARTISAN ORDER APIs
@@ -2053,9 +2075,17 @@ class ArtisanOrderListView(APIView):
             "search", ""
         ).strip()
 
+        # Search
         if search:
+            order_search = Q(order_number__icontains=search)
+
+            short_number = search.upper().removeprefix("CRP-")
+
+            if short_number.isdigit():
+                order_search |= Q(id=int(short_number))
+
             orders = orders.filter(
-                Q(order_number__icontains=search) |
+                order_search |
                 Q(full_name__icontains=search) |
                 Q(phone__icontains=search) |
                 Q(items__product_name__icontains=search)
@@ -2080,7 +2110,7 @@ class ArtisanOrderListView(APIView):
 
             result.append({
                 "id": order.id,
-                "order_number": str(order.order_number),
+                "order_number": f"CRP-{order.id:05d}",
 
                 "customer": {
                     "full_name": order.full_name,
@@ -2189,7 +2219,7 @@ class ArtisanOrderDetailView(APIView):
 
         result = {
             "id": order.id,
-            "order_number": str(order.order_number),
+            "order_number": f"CRP-{order.id:05d}",
 
             "customer": {
                 "full_name": order.full_name,

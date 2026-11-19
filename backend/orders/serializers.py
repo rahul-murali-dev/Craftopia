@@ -83,13 +83,17 @@ class ArtisanOrderResponseSerializer(serializers.ModelSerializer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
+    order_number = serializers.SerializerMethodField()
     items = OrderItemSerializer(many=True, read_only=True)
     return_request = serializers.SerializerMethodField()
-
     artisan_responses = ArtisanOrderResponseSerializer(
         many=True,
         read_only=True
     )
+
+    def get_order_number(self, obj):
+        return f"CRP-{obj.id:05d}"
+
 
     class Meta:
         model = Order
