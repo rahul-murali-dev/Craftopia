@@ -3,8 +3,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Heart, ShoppingCart, Star } from "lucide-react";
 import api from "../../config/axiosInstance";
-
-const IMAGE_BASE_URL = "http://localhost:8000";
+import { getImageUrl } from "../../config/media";
 
 export default function FeaturedProductsSection() {
   const navigate = useNavigate();
@@ -13,16 +12,6 @@ export default function FeaturedProductsSection() {
   const [wishlistItems, setWishlistItems] = useState([]);
   const [wishlistLoading, setWishlistLoading] = useState({});
   const [loading, setLoading] = useState(true);
-
-  const getImageUrl = (image) => {
-    if (!image) return null;
-
-    if (image.startsWith("http")) {
-      return image;
-    }
-
-    return `${IMAGE_BASE_URL}${image}`;
-  };
 
   const fetchProducts = async () => {
     try {

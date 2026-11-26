@@ -2,8 +2,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../config/axiosInstance";
-
-const IMAGE_BASE_URL = "http://localhost:8000";
+import { getImageUrl } from "../../config/media";
 
 const gradients = [
   "from-amber-200 to-orange-300",
@@ -12,12 +11,6 @@ const gradients = [
   "from-yellow-100 to-amber-200",
   "from-stone-200 to-stone-400",
 ];
-
-const getImageUrl = (image) => {
-  if (!image) return null;
-  if (image.startsWith("http")) return image;
-  return `${IMAGE_BASE_URL}${image}`;
-};
 
 export default function CategorySection() {
   const [categories, setCategories] = useState([]);

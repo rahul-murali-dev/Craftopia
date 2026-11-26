@@ -13,8 +13,7 @@ import {
 import Header from "../components/layout/Header";
 import Footer from "../components/layout/Footer";
 import api from "../config/axiosInstance";
-
-const IMAGE_BASE_URL = "http://localhost:8000";
+import { getImageUrl } from "../config/media";
 
 export default function CartPage() {
   const navigate = useNavigate();
@@ -24,11 +23,6 @@ export default function CartPage() {
   const [error, setError] = useState("");
   const [updatingItem, setUpdatingItem] = useState(null);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
-  const getImageUrl = (image) => {
-    if (!image) return null;
-    if (image.startsWith("http")) return image;
-    return `${IMAGE_BASE_URL}${image}`;
-  };
 
   const fetchCart = async () => {
     try {

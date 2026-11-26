@@ -13,8 +13,7 @@ import Header from "../components/layout/Header";
 import Footer from "../components/layout/Footer";
 import CustomAlert from "../components/ui/CustomAlert";
 import api from "../config/axiosInstance";
-
-const IMAGE_BASE_URL = "http://localhost:8000";
+import { getImageUrl } from "../config/media";
 
 export default function ProductListPage() {
   const navigate = useNavigate();
@@ -201,17 +200,6 @@ export default function ProductListPage() {
     setMinPrice("");
     setMaxPrice("");
     setPage(1);
-  };
-
-  // Image URL
-  const getImageUrl = (image) => {
-    if (!image) return null;
-
-    if (image.startsWith("http")) {
-      return image;
-    }
-
-    return `${IMAGE_BASE_URL}${image}`;
   };
 
   // Open Product Details

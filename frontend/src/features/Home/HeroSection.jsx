@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Clock } from "lucide-react";
 import api from "../../config/axiosInstance";
+import { getImageUrl } from "../../config/media";
 
 export default function HeroSection() {
   const [heroImage, setHeroImage] = useState("");
@@ -67,11 +68,7 @@ export default function HeroSection() {
           products.find((product) => product.images?.length > 0);
 
         if (selectedProduct) {
-          const image = selectedProduct.images[0].image;
-
-          const imageUrl = image.startsWith("http")
-            ? image
-            : `http://localhost:8000${image}`;
+          const imageUrl = getImageUrl(selectedProduct.images[0].image);
 
           setHeroImage(imageUrl);
         }

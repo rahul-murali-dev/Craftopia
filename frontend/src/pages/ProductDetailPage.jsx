@@ -24,8 +24,7 @@ import Header from "../components/layout/Header";
 import Footer from "../components/layout/Footer";
 import api from "../config/axiosInstance";
 import CustomAlert from "../components/ui/CustomAlert";
-
-const IMAGE_BASE_URL = "http://localhost:8000";
+import { getImageUrl } from "../config/media";
 
 export default function ProductDetailPage() {
   const { id } = useParams();
@@ -76,16 +75,6 @@ export default function ProductDetailPage() {
       message: "",
       onConfirm: null,
     });
-  };
-
-  const getImageUrl = (image) => {
-    if (!image) return null;
-
-    if (image.startsWith("http")) {
-      return image;
-    }
-
-    return `${IMAGE_BASE_URL}${image}`;
   };
 
   // Fetch Product Details

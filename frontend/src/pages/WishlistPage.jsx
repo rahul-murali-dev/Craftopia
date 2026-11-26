@@ -5,6 +5,7 @@ import { Heart, ShoppingCart, Trash2, ArrowLeft } from "lucide-react";
 import Header from "../components/layout/Header";
 import Footer from "../components/layout/Footer";
 import api from "../config/axiosInstance";
+import { getImageUrl as resolveImageUrl } from "../config/media";
 
 export default function WishlistPage() {
   const navigate = useNavigate();
@@ -99,17 +100,7 @@ export default function WishlistPage() {
     }
   };
 
-  const getImageUrl = (image) => {
-    if (!image) return null;
-
-    const imageUrl = image.image;
-
-    if (!imageUrl) return null;
-
-    return imageUrl.startsWith("http")
-      ? imageUrl
-      : `http://localhost:8000${imageUrl}`;
-  };
+  const getImageUrl = (image) => resolveImageUrl(image?.image);
 
   return (
     <div className="min-h-screen bg-[#F8F4ED]">
