@@ -1,10 +1,110 @@
 
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Q
+
+
+class Coupon(models.Model):
+
+    class DiscountType(models.TextChoices):
+        PERCENTAGE = "PERCENTAGE", "Percentage Discount"
+        FIXED = "FIXED", "Fixed Amount Discount"
+
+    code = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True
+    )
+
+    discount_type = models.CharField(
+        max_length=20,
+        choices=DiscountType.choices
+    )
+
+    discount_value = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))]
+    )
+
+    min_order_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))]
+    )
+
+    max_discount_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.01"))]
+    )
+
+    start_date = models.DateTimeField()
+    expiry_date = models.DateTimeField()
+
+    max_total_usage = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Total usage limit across all customers. Null = unlimited."
+    )
+
+    max_usage_per_customer = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+        help_text="Maximum times a single customer can use this coupon."
+    )
+
+    total_used_count = models.PositiveIntegerField(
+        default=0
+    )
+
+    is_active = models.BooleanField(
+        default=True
+    )
+
+    is_deleted = models.BooleanField(
+        default=False
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(discount_value__gt=0),
+                name="coupon_discount_value_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(min_order_amount__gte=0),
+                name="coupon_min_order_amount_non_negative"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.code} ({self.discount_type}: {self.discount_value})"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.code:
+            self.code = self.code.strip().upper()
+        if self.expiry_date and self.start_date and self.expiry_date <= self.start_date:
+            raise ValidationError({"expiry_date": "Expiry date must be after start date."})
+        if self.discount_type == self.DiscountType.PERCENTAGE and self.discount_value > 100:
+            raise ValidationError({"discount_value": "Percentage discount cannot exceed 100%."})
+
+    def save(self, *args, **kwargs):
+        if self.code:
+            self.code = self.code.strip().upper()
+        super().save(*args, **kwargs)
 
 
 class Order(models.Model):
@@ -58,6 +158,27 @@ class Order(models.Model):
         validators=[MinValueValidator(0)]
     )
 
+    coupon = models.ForeignKey(
+        Coupon,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="orders"
+    )
+
+    coupon_code = models.CharField(
+        max_length=50,
+        blank=True,
+        default=""
+    )
+
+    discount_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(0)]
+    )
+
     shipping_charge = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -102,6 +223,10 @@ class Order(models.Model):
                 name="order_subtotal_non_negative"
             ),
             models.CheckConstraint(
+                condition=Q(discount_amount__gte=0),
+                name="order_discount_non_negative"
+            ),
+            models.CheckConstraint(
                 condition=Q(shipping_charge__gte=0),
                 name="order_shipping_non_negative"
             ),
@@ -117,6 +242,52 @@ class Order(models.Model):
 
     def __str__(self):
         return str(self.order_number)
+
+
+class CouponUsage(models.Model):
+
+    coupon = models.ForeignKey(
+        Coupon,
+        on_delete=models.PROTECT,
+        related_name="usages"
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="coupon_usages"
+    )
+
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name="coupon_redemptions"
+    )
+
+    discount_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(0)]
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["coupon", "order"],
+                name="unique_coupon_per_order"
+            ),
+            models.CheckConstraint(
+                condition=Q(discount_amount__gte=0),
+                name="coupon_usage_discount_non_negative"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.coupon.code} - Order #{self.order_id}"
+
 
 
 class OrderItem(models.Model):
@@ -153,6 +324,19 @@ class OrderItem(models.Model):
         validators=[MinValueValidator(0)]
     )
 
+    # Individual item cancellation tracking
+    is_cancelled = models.BooleanField(default=False)
+
+    cancellation_reason = models.TextField(
+        blank=True,
+        default=""
+    )
+
+    cancelled_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -175,7 +359,6 @@ class OrderItem(models.Model):
 
     def __str__(self):
         return f"{self.product_name} - {self.quantity}"
-
 
 class Payment(models.Model):
 
@@ -347,12 +530,6 @@ class StockAdjustment(models.Model):
             "RETURN_RESTORATION",
             "Return Restoration"
         )
-
-        ARTISAN_REJECTION_RESTORATION = (
-            "ARTISAN_REJECTION_RESTORATION",
-            "Artisan Rejection Restoration"
-        )
-
     order_item = models.ForeignKey(
         OrderItem,
         on_delete=models.PROTECT,
@@ -397,144 +574,3 @@ class StockAdjustment(models.Model):
             f"{self.adjustment_type} - "
             f"{self.quantity}"
         )
-
-
-class ArtisanOrderResponse(models.Model):
-
-    class Status(models.TextChoices):
-        PENDING = "PENDING", "Pending"
-        ACCEPTED = "ACCEPTED", "Accepted"
-        REJECTED = "REJECTED", "Rejected"
-
-    class RejectionReason(models.TextChoices):
-        OUT_OF_STOCK = "OUT_OF_STOCK", "Out of Stock"
-
-        PRODUCT_UNAVAILABLE = (
-            "PRODUCT_UNAVAILABLE",
-            "Product Currently Unavailable"
-        )
-
-        UNABLE_TO_PREPARE = (
-            "UNABLE_TO_PREPARE",
-            "Unable to Prepare"
-        )
-
-        CUSTOM_ORDER_NOT_POSSIBLE = (
-            "CUSTOM_ORDER_NOT_POSSIBLE",
-            "Custom Order Not Possible"
-        )
-
-        OTHER = "OTHER", "Other"
-
-    order = models.ForeignKey(
-        Order,
-        on_delete=models.CASCADE,
-        related_name="artisan_responses"
-    )
-
-    artisan = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name="artisan_order_responses"
-    )
-
-    status = models.CharField(
-        max_length=20,
-        choices=Status.choices,
-        default=Status.PENDING
-    )
-
-    rejection_reason = models.CharField(
-        max_length=40,
-        choices=RejectionReason.choices,
-        blank=True,
-        default=""
-    )
-
-    response_note = models.TextField(
-        blank=True,
-        default=""
-    )
-
-    responded_at = models.DateTimeField(
-        null=True,
-        blank=True
-    )
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-
-        constraints = [
-            models.UniqueConstraint(
-                fields=["order", "artisan"],
-                name="unique_artisan_response_per_order"
-            ),
-        ]
-
-    def __str__(self):
-        return (
-            f"{self.order.order_number} - "
-            f"{self.artisan.username} - "
-            f"{self.status}"
-        )
-
-
-class ArtisanRefund(models.Model):
-
-    class Status(models.TextChoices):
-        PENDING = "PENDING", "Pending"
-        PROCESSED = "PROCESSED", "Processed"
-        FAILED = "FAILED", "Failed"
-
-    payment = models.ForeignKey(
-        Payment,
-        on_delete=models.PROTECT,
-        related_name="artisan_refunds"
-    )
-
-    artisan_response = models.OneToOneField(
-        ArtisanOrderResponse,
-        on_delete=models.PROTECT,
-        related_name="refund"
-    )
-
-    amount = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        validators=[MinValueValidator("0.01")]
-    )
-
-    razorpay_refund_id = models.CharField(
-        max_length=100,
-        unique=True,
-        null=True,
-        blank=True
-    )
-
-    status = models.CharField(
-        max_length=20,
-        choices=Status.choices,
-        default=Status.PENDING
-    )
-
-    failure_reason = models.TextField(
-        blank=True,
-        default=""
-    )
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        constraints = [
-            models.CheckConstraint(
-                condition=Q(amount__gt=0),
-                name="artisan_refund_amount_positive"
-            ),
-        ]
-
-    def __str__(self):
-        return f"Refund - {self.artisan_response}"

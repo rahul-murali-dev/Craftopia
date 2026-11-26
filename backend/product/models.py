@@ -25,10 +25,6 @@ class Category(models.Model):
 
     def __str__(self):
         return self.name
-
-
-
-
 class Product(models.Model):
     artisan = models.ForeignKey(
         ArtisanProfile,

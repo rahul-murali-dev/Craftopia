@@ -69,6 +69,13 @@ const ArtisanDashboard = () => {
   const navigate = useNavigate();
 
   const [orders, setOrders] = useState([]);
+  const [summary, setSummary] = useState({
+    total_orders: 0,
+    active_orders: 0,
+    total_items: 0,
+    completed_orders: 0,
+  });
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -78,20 +85,39 @@ const ArtisanDashboard = () => {
       setLoading(true);
       setError("");
 
-      const response = await api.get("/orders/artisan/orders/");
+      // Dashboard displays only the latest five orders.
+      const response = await api.get("/orders/artisan/orders/", {
+        params: {
+          page: 1,
+          page_size: 5,
+        },
+      });
 
-      const orderData = Array.isArray(response.data)
-        ? response.data
+      const orderData = Array.isArray(response.data?.results)
+        ? response.data.results
         : [];
 
+      const summaryData = response.data?.summary || {};
+
       setOrders(orderData);
+
+      setSummary({
+        total_orders: Number(summaryData.total_orders || 0),
+        active_orders: Number(summaryData.active_orders || 0),
+        total_items: Number(summaryData.total_items || 0),
+        completed_orders: Number(
+          summaryData.completed_orders ??
+          summaryData.delivered_orders ??
+          0
+        ),
+      });
 
       setSelectedOrder((previous) => {
         if (!previous) return null;
 
-        return orderData.find(
-          (order) => order.id === previous.id
-        ) || null;
+        return (
+          orderData.find((order) => order.id === previous.id) || null
+        );
       });
     } catch (err) {
       console.error("Failed to fetch artisan orders:", err);
@@ -117,45 +143,33 @@ const ArtisanDashboard = () => {
     });
   };
 
-  const activeOrders = orders.filter(
-    (order) =>
-      !["DELIVERED", "CANCELLED"].includes(order.order_status)
-  );
-
-  const completedOrders = orders.filter(
-    (order) => order.order_status === "DELIVERED"
-  );
-
-  const totalItems = orders.reduce(
-    (total, order) =>
-      total + Number(order.items_count || 0),
-    0
-  );
-
   const stats = [
     {
       label: "Order Overview",
       title: "Total Orders",
-      count: orders.length,
+      count: summary.total_orders,
       description: "Orders containing your products",
       badge: "All Your Orders",
       icon: Package,
+      onClick: () => navigate("/artisan/orders"),
     },
     {
       label: "Currently Active",
       title: "Active Orders",
-      count: activeOrders.length,
+      count: summary.active_orders,
       description: "Orders still being processed",
       badge: "Needs Tracking",
       icon: Clock,
+      onClick: () => navigate("/artisan/orders?status=active"),
     },
     {
       label: "Product Overview",
       title: "Items Ordered",
-      count: totalItems,
+      count: summary.total_items,
       description: "Total units ordered from your shop",
       badge: "Your Products",
       icon: ShoppingBag,
+      onClick: () => navigate("/artisan/products"),
     },
   ];
 
@@ -227,11 +241,13 @@ const ArtisanDashboard = () => {
           const Icon = stat.icon;
 
           return (
-            <div
+            <button
               key={stat.title}
-              className="flex h-full flex-col justify-between rounded-2xl border border-[#F2E6E1] bg-white p-5 shadow-sm sm:p-6"
+              type="button"
+              onClick={stat.onClick}
+              className="flex h-full flex-col justify-between rounded-2xl border border-[#F2E6E1] bg-white p-5 text-left shadow-sm transition-all hover:-translate-y-1 hover:shadow-md sm:p-6"
             >
-              <div className="mb-5 flex items-start justify-between">
+              <div className="mb-5 flex w-full items-start justify-between">
                 <div>
                   <p className="mb-1 text-xs font-bold uppercase tracking-wider text-[#8B6248]">
                     {stat.label}
@@ -258,9 +274,10 @@ const ArtisanDashboard = () => {
 
                 <span className="inline-flex rounded-full border border-[#E5E0D8] bg-[#F8F4ED] px-2.5 py-1 text-xs font-medium text-[#5C3A2E]">
                   {stat.badge}
+                  <ArrowRight size={13} className="ml-1" />
                 </span>
               </div>
-            </div>
+            </button>
           );
         })}
       </section>
@@ -279,22 +296,33 @@ const ArtisanDashboard = () => {
               </h2>
 
               <p className="mt-1 text-sm text-[#8B6248]">
-                Orders containing products from your shop
+                Showing your latest five orders
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={fetchOrders}
-              disabled={loading}
-              className="flex items-center gap-2 text-sm font-medium text-[#5C3A2E] transition-colors hover:text-[#B87552] disabled:opacity-50"
-            >
-              <RefreshCw
-                size={14}
-                className={loading ? "animate-spin" : ""}
-              />
-              Refresh
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => navigate("/artisan/orders")}
+                className="flex items-center gap-1 text-sm font-semibold text-[#B87552] transition-colors hover:text-[#5C3A2E]"
+              >
+                View All Orders
+                <ArrowRight size={15} />
+              </button>
+
+              <button
+                type="button"
+                onClick={fetchOrders}
+                disabled={loading}
+                className="flex items-center gap-2 text-sm font-medium text-[#5C3A2E] transition-colors hover:text-[#B87552] disabled:opacity-50"
+              >
+                <RefreshCw
+                  size={14}
+                  className={loading ? "animate-spin" : ""}
+                />
+                Refresh
+              </button>
+            </div>
           </div>
 
           {error && (
@@ -524,7 +552,7 @@ const ArtisanDashboard = () => {
                         </div>
 
                         {/* Order Information */}
-                        <div className="rounded-xl border border-[#F2E6E1] bg-white p-4">
+                        <div className="rounded-xl border border-[#E5E0D8] bg-white p-4">
                           <h4 className="mb-2 font-bold text-[#30231E]">
                             Order Progress
                           </h4>
@@ -667,7 +695,7 @@ const ArtisanDashboard = () => {
             </div>
 
             <p className="font-serif text-3xl font-bold text-[#30231E]">
-              {completedOrders.length}
+              {summary.completed_orders}
             </p>
 
             <p className="mt-1 text-xs text-[#8B6248]">

@@ -7,7 +7,7 @@ from xml.sax.saxutils import escape
 
 from django.conf import settings
 from django.db import transaction, IntegrityError
-from django.db.models import F, Q, Prefetch
+from django.db.models import F, Q, Prefetch,Sum
 from django.http import HttpResponse
 from django.utils import timezone
 
@@ -16,25 +16,37 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework import status, serializers
 
+
+from .models import OrderItem
 from product.models import Cart, Product, ProductImage
 from users.models import Address, ArtisanProfile
 from decimal import Decimal, ROUND_HALF_UP
+from django.core.exceptions import ValidationError as DjangoValidationError
 from .models import (
     Order,
     OrderItem,
     Payment,
     ReturnRequest,
     StockAdjustment,
-    ArtisanOrderResponse,
-    ArtisanRefund,
+    Coupon,
+    CouponUsage,
 )
 from django.core.paginator import Paginator
 from .serializers import (
+    AvailableCouponSerializer,
     CheckoutSerializer,
     OrderSerializer,
     CancelOrderSerializer,
     ReturnRequestSerializer,
     BuyNowCheckoutSerializer,
+    CouponAdminSerializer,
+    ApplyCouponSerializer,
+    CouponUsageSerializer,
+)
+from .coupon_services import (
+    validate_and_calculate_coupon,
+    record_coupon_redemption,
+    revert_coupon_redemption,
 )
 
 from .razorpay_service import (
@@ -59,6 +71,7 @@ from reportlab.platypus import (
 
 class RazorpayOrderCreationError(Exception):
     pass
+
 
 
 class CheckoutView(APIView):
@@ -258,7 +271,42 @@ class CheckoutView(APIView):
 
                 shipping_charge = Decimal("0.00")
                 tax = Decimal("0.00")
-                total_amount = subtotal + shipping_charge + tax
+
+                coupon_code = data.get("coupon_code", "").strip()
+                coupon_obj = None
+                coupon_code_saved = ""
+                discount_amount = Decimal("0.00")
+
+                if coupon_code:
+                    try:
+                        coupon_calc = validate_and_calculate_coupon(
+                            coupon_code=coupon_code,
+                            user=request.user,
+                            eligible_subtotal=subtotal,
+                            lock=True,
+                        )
+
+                        coupon_obj = coupon_calc["coupon"]
+                        coupon_code_saved = coupon_calc["coupon_code"]
+                        discount_amount = coupon_calc["discount_amount"]
+
+                    except DjangoValidationError as err:
+                        error_msg = (
+                            err.message_dict.get(
+                                "coupon_code", [str(err)]
+                            )[0]
+                            if hasattr(err, "message_dict")
+                            else str(err)
+                        )
+
+                        raise serializers.ValidationError({
+                            "coupon_code": error_msg
+                        })
+
+                total_amount = max(
+                    Decimal("0.00"),
+                    subtotal - discount_amount + shipping_charge + tax
+                )
 
                 if data["payment_method"] == Payment.Method.RAZORPAY:
                     initial_status = Order.Status.PENDING
@@ -276,6 +324,9 @@ class CheckoutView(APIView):
                     state=delivery_address["state"],
                     pincode=delivery_address["pincode"],
                     subtotal=subtotal,
+                    coupon=coupon_obj,
+                    coupon_code=coupon_code_saved,
+                    discount_amount=discount_amount,
                     shipping_charge=shipping_charge,
                     tax=tax,
                     total_amount=total_amount,
@@ -321,20 +372,7 @@ class CheckoutView(APIView):
                         )
                     )
 
-                # Create one pending response for each unique artisan.
-                artisan_user_ids = {
-                    item_data["product"].artisan.user_id
-                    for item_data in order_items_data
-                }
-
-                ArtisanOrderResponse.objects.bulk_create([
-                    ArtisanOrderResponse(
-                        order=order,
-                        artisan_id=artisan_user_id,
-                        status=ArtisanOrderResponse.Status.PENDING,
-                    )
-                    for artisan_user_id in artisan_user_ids
-                ])
+                # No artisan acceptance or rejection is required.
 
                 if data["payment_method"] == Payment.Method.COD:
 
@@ -344,6 +382,13 @@ class CheckoutView(APIView):
                         amount=total_amount,
                         status=Payment.Status.PENDING,
                     )
+
+                    if coupon_obj:
+                        record_coupon_redemption(
+                            order,
+                            coupon_obj,
+                            discount_amount
+                        )
 
                 elif data["payment_method"] == Payment.Method.RAZORPAY:
 
@@ -572,7 +617,28 @@ class BuyNowCheckoutView(APIView):
 
                 shipping_charge = Decimal("0.00")
                 tax = Decimal("0.00")
-                total_amount = subtotal + shipping_charge + tax
+
+                coupon_code = data.get("coupon_code", "").strip()
+                coupon_obj = None
+                coupon_code_saved = ""
+                discount_amount = Decimal("0.00")
+
+                if coupon_code:
+                    try:
+                        coupon_calc = validate_and_calculate_coupon(
+                            coupon_code=coupon_code,
+                            user=request.user,
+                            eligible_subtotal=subtotal,
+                            lock=True,
+                        )
+                        coupon_obj = coupon_calc["coupon"]
+                        coupon_code_saved = coupon_calc["coupon_code"]
+                        discount_amount = coupon_calc["discount_amount"]
+                    except DjangoValidationError as err:
+                        error_msg = err.message_dict.get("coupon_code", [str(err)])[0] if hasattr(err, "message_dict") else str(err)
+                        raise serializers.ValidationError({"coupon_code": error_msg})
+
+                total_amount = max(Decimal("0.00"), subtotal - discount_amount + shipping_charge + tax)
 
                 if data["payment_method"] == Payment.Method.RAZORPAY:
                     initial_status = Order.Status.PENDING
@@ -590,6 +656,9 @@ class BuyNowCheckoutView(APIView):
                     state=delivery_address["state"],
                     pincode=delivery_address["pincode"],
                     subtotal=subtotal,
+                    coupon=coupon_obj,
+                    coupon_code=coupon_code_saved,
+                    discount_amount=discount_amount,
                     shipping_charge=shipping_charge,
                     tax=tax,
                     total_amount=total_amount,
@@ -631,14 +700,7 @@ class BuyNowCheckoutView(APIView):
                         f"item:{order_item.id}:DEDUCTION"
                     )
                 )
-
-                # Create a pending response for this product's artisan.
-                ArtisanOrderResponse.objects.create(
-                    order=order,
-                    artisan=product.artisan.user,
-                    status=ArtisanOrderResponse.Status.PENDING,
-                )
-
+                # No artisan acceptance or rejection is required.
                 if data["payment_method"] == Payment.Method.COD:
 
                     Payment.objects.create(
@@ -647,6 +709,9 @@ class BuyNowCheckoutView(APIView):
                         amount=total_amount,
                         status=Payment.Status.PENDING,
                     )
+
+                    if coupon_obj:
+                        record_coupon_redemption(order, coupon_obj, discount_amount)
 
                 elif data["payment_method"] == Payment.Method.RAZORPAY:
 
@@ -717,6 +782,284 @@ class BuyNowCheckoutView(APIView):
 
             raise
 
+class RetryPaymentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, order_id):
+
+        if request.user.role != "CUSTOMER":
+            return Response(
+                {"error": "Only customers can retry payments."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if (
+            not settings.RAZORPAY_KEY_ID
+            or not settings.RAZORPAY_KEY_SECRET
+        ):
+            return Response(
+                {"error": "Razorpay API keys are not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+        try:
+            with transaction.atomic():
+
+                order = Order.objects.select_for_update().get(
+                    id=order_id,
+                    user=request.user
+                )
+
+                if order.status != Order.Status.PENDING:
+                    return Response(
+                        {"error": "Payment retry is not available for this order."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # Do not allow retry if any payment has succeeded.
+                if order.payments.filter(
+                    status=Payment.Status.SUCCESS
+                ).exists():
+                    return Response(
+                        {"error": "This order has already been paid."},
+                        status=status.HTTP_409_CONFLICT
+                    )
+
+                # A COD order cannot be changed back through retry.
+                if order.payments.filter(
+                    payment_method=Payment.Method.COD
+                ).exists():
+                    return Response(
+                        {"error": "This order is already set to Cash on Delivery."},
+                        status=status.HTTP_409_CONFLICT
+                    )
+
+                latest_payment = (
+                    order.payments.select_for_update()
+                    .filter(payment_method=Payment.Method.RAZORPAY)
+                    .order_by("-created_at", "-id")
+                    .first()
+                )
+
+                if latest_payment is None:
+                    return Response(
+                        {"error": "Razorpay payment record not found."},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+
+                if latest_payment.status not in [
+                    Payment.Status.PENDING,
+                    Payment.Status.FAILED,
+                ]:
+                    return Response(
+                        {"error": "This payment cannot be retried."},
+                        status=status.HTTP_409_CONFLICT
+                    )
+
+                try:
+                    razorpay_order = create_razorpay_order(
+                        order.total_amount,
+                        str(order.order_number)
+                    )
+
+                except Exception:
+                    return Response(
+                        {"error": "Unable to create a new Razorpay payment."},
+                        status=status.HTTP_502_BAD_GATEWAY
+                    )
+
+                # Invalidate every previous unfinished Razorpay attempt.
+                order.payments.filter(
+                    payment_method=Payment.Method.RAZORPAY,
+                    status=Payment.Status.PENDING
+                ).update(
+                    status=Payment.Status.FAILED,
+                    failure_reason="Superseded by a new payment attempt."
+                )
+
+                new_payment = Payment.objects.create(
+                    order=order,
+                    payment_method=Payment.Method.RAZORPAY,
+                    amount=order.total_amount,
+                    status=Payment.Status.PENDING,
+                    razorpay_order_id=razorpay_order["id"],
+                )
+
+            return Response(
+                {
+                    "message": "New payment attempt created.",
+                    "order_id": order.id,
+                    "payment_id": new_payment.id,
+                    "razorpay": {
+                        "key": settings.RAZORPAY_KEY_ID,
+                        "razorpay_order_id": razorpay_order["id"],
+                        "amount": razorpay_order["amount"],
+                        "currency": razorpay_order["currency"],
+                    }
+                },
+                status=status.HTTP_201_CREATED
+            )
+
+        except Order.DoesNotExist:
+            return Response(
+                {"error": "Order not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class ChangePaymentMethodView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, order_id):
+
+        if request.user.role != "CUSTOMER":
+            return Response(
+                {"error": "Only customers can change payment methods."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            with transaction.atomic():
+
+                order = Order.objects.select_for_update().get(
+                    id=order_id,
+                    user=request.user
+                )
+
+                if order.status != Order.Status.PENDING:
+                    return Response(
+                        {"error": "Payment method cannot be changed for this order."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # Prevent switching an already-paid order.
+                if order.payments.filter(
+                    status=Payment.Status.SUCCESS
+                ).exists():
+                    return Response(
+                        {"error": "This order has already been paid."},
+                        status=status.HTTP_409_CONFLICT
+                    )
+
+                # Prevent duplicate COD payment records.
+                if order.payments.filter(
+                    payment_method=Payment.Method.COD
+                ).exists():
+                    return Response(
+                        {"error": "This order is already set to Cash on Delivery."},
+                        status=status.HTTP_409_CONFLICT
+                    )
+
+                # Check whether every ordered product supports COD.
+                order_items = list(
+                    OrderItem.objects.select_for_update().filter(
+                        order=order
+                    )
+                )
+
+                if not order_items:
+                    return Response(
+                        {"error": "No products found in this order."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                product_ids = [
+                    item.product_id
+                    for item in order_items
+                    if item.product_id is not None
+                ]
+
+                if len(product_ids) != len(order_items):
+                    return Response(
+                        {
+                            "error": (
+                                "COD is unavailable because one or more "
+                                "ordered products are no longer available."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                products = list(
+                    Product.objects.select_for_update().filter(
+                        id__in=product_ids
+                    )
+                )
+
+                if len(products) != len(set(product_ids)):
+                    return Response(
+                        {
+                            "error": (
+                                "COD is unavailable because one or more "
+                                "ordered products could not be found."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                if any(not product.allow_cod for product in products):
+                    return Response(
+                        {
+                            "error": (
+                                "COD is not available for one or more "
+                                "products in this order."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # Invalidate previous Razorpay payment attempts.
+                order.payments.filter(
+                    payment_method=Payment.Method.RAZORPAY,
+                    status=Payment.Status.PENDING
+                ).update(
+                    status=Payment.Status.FAILED,
+                    failure_reason="Payment method changed to COD."
+                )
+
+                # Create COD payment for the existing order.
+                Payment.objects.create(
+                    order=order,
+                    payment_method=Payment.Method.COD,
+                    amount=order.total_amount,
+                    status=Payment.Status.PENDING,
+                )
+
+                # COD orders are confirmed, but payment remains pending
+                # until the admin collects the cash after delivery.
+                order.status = Order.Status.CONFIRMED
+                order.save(
+                    update_fields=["status", "updated_at"]
+                )
+
+                # Record coupon usage for the COD order.
+                if order.coupon:
+                    record_coupon_redemption(
+                        order,
+                        order.coupon,
+                        order.discount_amount
+                    )
+
+            return Response(
+                {
+                    "message": "Payment method changed to COD successfully.",
+                    "order": OrderSerializer(order).data,
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except Order.DoesNotExist:
+            return Response(
+                {"error": "Order not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        except IntegrityError:
+            return Response(
+                {"error": "Unable to change the payment method."},
+                status=status.HTTP_409_CONFLICT
+            )
+
 
 class VerifyPaymentView(APIView):
     permission_classes = [IsAuthenticated]
@@ -766,6 +1109,8 @@ class VerifyPaymentView(APIView):
                     razorpay_order_id=razorpay_order_id
                 )
 
+                # Keep verification idempotent for an already successful
+                # payment attempt.
                 if payment.status == Payment.Status.SUCCESS:
 
                     if (
@@ -785,10 +1130,40 @@ class VerifyPaymentView(APIView):
                         status=status.HTTP_409_CONFLICT
                     )
 
+                # Only the current pending attempt can be verified.
+                if payment.status != Payment.Status.PENDING:
+                    return Response(
+                        {
+                            "error": (
+                                "This payment attempt is no longer active. "
+                                "Please use your latest payment attempt."
+                            )
+                        },
+                        status=status.HTTP_409_CONFLICT
+                    )
+
                 if order.status != Order.Status.PENDING:
                     return Response(
                         {"error": "This order cannot be verified."},
                         status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # Ensure this is the latest Razorpay payment attempt.
+                latest_payment = (
+                    order.payments.filter(
+                        payment_method=Payment.Method.RAZORPAY
+                    )
+                    .order_by("-created_at", "-id")
+                    .first()
+                )
+
+                if (
+                    latest_payment is None
+                    or latest_payment.id != payment.id
+                ):
+                    return Response(
+                        {"error": "This is an outdated payment attempt."},
+                        status=status.HTTP_409_CONFLICT
                     )
 
                 try:
@@ -803,7 +1178,11 @@ class VerifyPaymentView(APIView):
                     payment.status = Payment.Status.FAILED
                     payment.failure_reason = "Invalid payment signature."
                     payment.save(
-                        update_fields=["status", "failure_reason", "updated_at"]
+                        update_fields=[
+                            "status",
+                            "failure_reason",
+                            "updated_at"
+                        ]
                     )
 
                     return Response(
@@ -833,7 +1212,16 @@ class VerifyPaymentView(APIView):
                 )
 
                 order.status = Order.Status.CONFIRMED
-                order.save(update_fields=["status", "updated_at"])
+                order.save(
+                    update_fields=["status", "updated_at"]
+                )
+
+                if order.coupon:
+                    record_coupon_redemption(
+                        order,
+                        order.coupon,
+                        order.discount_amount
+                    )
 
             return Response(
                 {
@@ -862,107 +1250,6 @@ class VerifyPaymentView(APIView):
             )
 
 
-class RetryPaymentView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, order_id):
-
-        if request.user.role != "CUSTOMER":
-            return Response(
-                {"error": "Only customers can retry payments."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        if (
-            not settings.RAZORPAY_KEY_ID
-            or not settings.RAZORPAY_KEY_SECRET
-        ):
-            return Response(
-                {"error": "Razorpay API keys are not configured."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
-
-        try:
-            with transaction.atomic():
-
-                order = Order.objects.select_for_update().get(
-                    id=order_id,
-                    user=request.user
-                )
-
-                if order.status != Order.Status.PENDING:
-                    return Response(
-                        {"error": "Payment retry is not available for this order."},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
-                latest_payment = order.payments.filter(
-                    payment_method=Payment.Method.RAZORPAY
-                ).order_by("-created_at").first()
-
-                if latest_payment is None:
-                    return Response(
-                        {"error": "Razorpay payment record not found."},
-                        status=status.HTTP_404_NOT_FOUND
-                    )
-
-                if latest_payment.status == Payment.Status.SUCCESS:
-                    return Response(
-                        {"error": "This order has already been paid."},
-                        status=status.HTTP_409_CONFLICT
-                    )
-
-                if latest_payment.status != Payment.Status.FAILED:
-                    return Response(
-                        {
-                            "error": (
-                                "The previous payment must be marked "
-                                "as failed before retrying."
-                            )
-                        },
-                        status=status.HTTP_409_CONFLICT
-                    )
-
-                try:
-                    razorpay_order = create_razorpay_order(
-                        order.total_amount,
-                        str(order.order_number)
-                    )
-
-                except Exception:
-                    return Response(
-                        {"error": "Unable to create a new Razorpay payment."},
-                        status=status.HTTP_502_BAD_GATEWAY
-                    )
-
-                new_payment = Payment.objects.create(
-                    order=order,
-                    payment_method=Payment.Method.RAZORPAY,
-                    amount=order.total_amount,
-                    status=Payment.Status.PENDING,
-                    razorpay_order_id=razorpay_order["id"],
-                )
-
-            return Response(
-                {
-                    "message": "New payment attempt created.",
-                    "order_id": order.id,
-                    "payment_id": new_payment.id,
-                    "razorpay": {
-                        "key": settings.RAZORPAY_KEY_ID,
-                        "razorpay_order_id": razorpay_order["id"],
-                        "amount": razorpay_order["amount"],
-                        "currency": razorpay_order["currency"],
-                    }
-                },
-                status=status.HTTP_201_CREATED
-            )
-
-        except Order.DoesNotExist:
-            return Response(
-                {"error": "Order not found."},
-                status=status.HTTP_404_NOT_FOUND
-            )
 
 
 class MyOrdersView(APIView):
@@ -1041,10 +1328,17 @@ class OrderDetailView(APIView):
         )
 
 
+
+
+
 class CancelOrderView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, order_id):
+
+        from decimal import Decimal, ROUND_HALF_UP
+        from django.db.models import Sum
+        from .models import CouponUsage, Payment
 
         if request.user.role != "CUSTOMER":
             return Response(
@@ -1055,6 +1349,7 @@ class CancelOrderView(APIView):
         serializer = CancelOrderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        order_item_id = serializer.validated_data["order_item_id"]
         reason = serializer.validated_data.get("reason", "")
 
         try:
@@ -1074,55 +1369,252 @@ class CancelOrderView(APIView):
                         status=status.HTTP_400_BAD_REQUEST
                     )
 
-                order_items = order.items.select_related(
-                    "product"
-                ).order_by("id")
+                item = OrderItem.objects.select_for_update().get(
+                    id=order_item_id,
+                    order=order
+                )
 
-                for item in order_items:
+                if item.is_cancelled:
+                    return Response(
+                        {"error": "This item is already cancelled."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
 
-                    if not item.product_id:
-                        raise serializers.ValidationError({
-                            "product": (
+                if not item.product_id:
+                    return Response(
+                        {
+                            "error": (
                                 f"Product for {item.product_name} "
                                 "is unavailable for stock restoration."
                             )
-                        })
-
-                    product = Product.objects.select_for_update().get(
-                        id=item.product_id
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
                     )
 
+                product = Product.objects.select_for_update().get(
+                    id=item.product_id
+                )
+
+                # 1. Restore the cancelled product's stock.
+                reference = (
+                    f"order:{order.id}:"
+                    f"item:{item.id}:"
+                    "CANCELLATION_RESTORATION"
+                )
+
+                adjustment, created = (
+                    StockAdjustment.objects.get_or_create(
+                        reference=reference,
+                        defaults={
+                            "order_item": item,
+                            "product": product,
+                            "adjustment_type": (
+                                StockAdjustment.AdjustmentType
+                                .CANCELLATION_RESTORATION
+                            ),
+                            "quantity": item.quantity,
+                        }
+                    )
+                )
+
+                if created:
                     Product.objects.filter(
                         id=product.id
                     ).update(
                         stock=F("stock") + item.quantity
                     )
 
-                    StockAdjustment.objects.create(
-                        order_item=item,
-                        product=product,
-                        adjustment_type=(
-                            StockAdjustment.AdjustmentType
-                            .CANCELLATION_RESTORATION
-                        ),
-                        quantity=item.quantity,
-                        reference=(
-                            f"order:{order.id}:"
-                            f"item:{item.id}:"
-                            "CANCELLATION_RESTORATION"
+                # 2. Mark this individual item as cancelled.
+                item.is_cancelled = True
+                item.cancellation_reason = reason
+                item.cancelled_at = timezone.now()
+
+                item.save(
+                    update_fields=[
+                        "is_cancelled",
+                        "cancellation_reason",
+                        "cancelled_at",
+                    ]
+                )
+
+                # 3. Calculate subtotal using active items only.
+                remaining_items = order.items.filter(
+                    is_cancelled=False
+                )
+
+                remaining_subtotal = (
+                    remaining_items.aggregate(
+                        total=Sum("subtotal")
+                    )["total"]
+                    or Decimal("0.00")
+                )
+
+                remaining_subtotal = remaining_subtotal.quantize(
+                    Decimal("0.01")
+                )
+
+                # 4. Recalculate coupon discount.
+                discount_amount = Decimal("0.00")
+
+                if remaining_items.exists() and order.coupon_id:
+
+                    coupon = order.coupon
+
+                    # Check the original coupon's minimum order amount.
+                    # Do not revalidate expiry or usage limits because
+                    # this coupon was already accepted at checkout.
+                    if (
+                        remaining_subtotal
+                        >= coupon.min_order_amount
+                    ):
+
+                        if coupon.discount_type == "PERCENTAGE":
+
+                            discount_amount = (
+                                remaining_subtotal
+                                * coupon.discount_value
+                                / Decimal("100")
+                            )
+
+                            if coupon.max_discount_amount is not None:
+                                discount_amount = min(
+                                    discount_amount,
+                                    coupon.max_discount_amount
+                                )
+
+                        elif coupon.discount_type == "FIXED":
+
+                            discount_amount = min(
+                                coupon.discount_value,
+                                remaining_subtotal
+                            )
+
+                        discount_amount = discount_amount.quantize(
+                            Decimal("0.01"),
+                            rounding=ROUND_HALF_UP
+                        )
+
+                        discount_amount = min(
+                            discount_amount,
+                            remaining_subtotal
+                        )
+
+                        # Update an existing coupon redemption.
+                        # Do not create a new redemption for an
+                        # unpaid Razorpay order.
+                        usage = (
+                            CouponUsage.objects.select_for_update()
+                            .filter(
+                                order=order,
+                                coupon_id=order.coupon_id
+                            )
+                            .first()
+                        )
+
+                        if usage:
+                            usage.discount_amount = discount_amount
+                            usage.save(
+                                update_fields=["discount_amount"]
+                            )
+
+                    else:
+                        # Remaining subtotal is below coupon minimum.
+                        # Reverse the previous coupon redemption.
+                        revert_coupon_redemption(order)
+
+                else:
+                    # All products cancelled, or no coupon applied.
+                    if order.coupon_id:
+                        revert_coupon_redemption(order)
+
+                # 5. Update the order's financial values.
+                order.subtotal = remaining_subtotal
+                order.discount_amount = discount_amount
+
+                if not remaining_items.exists():
+                    # Entire order is now cancelled.
+                    order.status = Order.Status.CANCELLED
+                    order.cancellation_reason = reason
+
+                    order.shipping_charge = Decimal("0.00")
+                    order.tax = Decimal("0.00")
+                    order.total_amount = Decimal("0.00")
+
+                else:
+                    # Keep the existing shipping/tax policy.
+                    order.total_amount = max(
+                        Decimal("0.00"),
+                        (
+                            order.subtotal
+                            - order.discount_amount
+                            + order.shipping_charge
+                            + order.tax
                         )
                     )
 
-                order.status = Order.Status.CANCELLED
-                order.cancellation_reason = reason
-
                 order.save(
                     update_fields=[
+                        "subtotal",
+                        "discount_amount",
+                        "shipping_charge",
+                        "tax",
+                        "total_amount",
                         "status",
                         "cancellation_reason",
                         "updated_at",
                     ]
                 )
+
+                # 6. Update payment attempts safely.
+                payments = list(
+                    Payment.objects.select_for_update()
+                    .filter(order=order)
+                    .order_by("-created_at")
+                )
+
+                has_successful_payment = any(
+                    payment.status == Payment.Status.SUCCESS
+                    for payment in payments
+                )
+
+                if not has_successful_payment:
+
+                    for payment in payments:
+
+                        if (
+                            payment.payment_method
+                            == Payment.Method.COD
+                            and payment.status == Payment.Status.PENDING
+                        ):
+                            # COD has not been collected yet.
+                            payment.amount = order.total_amount
+                            payment.save(
+                                update_fields=["amount", "updated_at"]
+                            )
+
+                        elif (
+                            payment.payment_method
+                            == Payment.Method.RAZORPAY
+                            and payment.status == Payment.Status.PENDING
+                        ):
+                            # Invalidate the old Razorpay attempt.
+                            # A retry must create a new Razorpay order
+                            # using the recalculated order total.
+                            payment.status = Payment.Status.FAILED
+                            payment.failure_reason = (
+                                "This payment attempt was invalidated "
+                                "because the order was modified after "
+                                "item cancellation. Please retry payment."
+                            )
+                            payment.save(
+                                update_fields=[
+                                    "status",
+                                    "failure_reason",
+                                    "updated_at",
+                                ]
+                            )
+
+            order.refresh_from_db()
 
             return Response(
                 OrderSerializer(order).data,
@@ -1135,12 +1627,17 @@ class CancelOrderView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        except OrderItem.DoesNotExist:
+            return Response(
+                {"error": "Order item not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
         except Product.DoesNotExist:
             return Response(
                 {"error": "Product not found."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
 
 class ReturnRequestView(APIView):
     permission_classes = [IsAuthenticated]
@@ -1741,6 +2238,7 @@ class AdminOrderListView(APIView):
             "results": result,
         }, status=status.HTTP_200_OK)
     
+
 class AdminOrderDetailView(APIView):
     permission_classes = [IsAdminUser]
 
@@ -1806,6 +2304,8 @@ class AdminOrderDetailView(APIView):
                 },
                 "items": items,
                 "subtotal": order.subtotal,
+                "coupon_code": order.coupon_code,
+                "discount_amount": order.discount_amount,
                 "shipping_charge": order.shipping_charge,
                 "tax": order.tax,
                 "total_amount": order.total_amount,
@@ -1817,7 +2317,6 @@ class AdminOrderDetailView(APIView):
             },
             status=status.HTTP_200_OK
         )
-
 
 class AdminOrderStatusUpdateView(APIView):
     permission_classes = [IsAdminUser]
@@ -2022,16 +2521,15 @@ def get_artisan_item_data(item, request):
         "images": image_urls,
         "image": image_urls[0] if image_urls else None,
     }
-
-
 class ArtisanOrderListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
 
+        # Only artisans can access this API
         if request.user.role != "ARTISAN":
             return Response(
-                {"error": "Only artisans can view order requests."},
+                {"error": "Only artisans can view orders."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -2046,6 +2544,7 @@ class ArtisanOrderListView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
+        # Get only this artisan's order items
         artisan_items = OrderItem.objects.filter(
             product__artisan=artisan
         ).select_related(
@@ -2054,28 +2553,52 @@ class ArtisanOrderListView(APIView):
             "product__images"
         ).order_by("id")
 
-        orders = Order.objects.filter(
+        # Get only orders containing this artisan's products
+        all_orders = Order.objects.filter(
             items__product__artisan=artisan
-        ).distinct().prefetch_related(
+        ).distinct()
+
+        # Overall statistics (not affected by search or status filter)
+        total_orders = all_orders.count()
+
+        active_orders = all_orders.exclude(
+            status__in=[
+                Order.Status.DELIVERED,
+                Order.Status.CANCELLED,
+            ]
+        ).count()
+
+        completed_orders = all_orders.filter(
+            status=Order.Status.DELIVERED
+        ).count()
+
+        total_items = OrderItem.objects.filter(
+            product__artisan=artisan
+        ).aggregate(
+            total=Sum("quantity")
+        )["total"] or 0
+
+        summary = {
+            "total_orders": total_orders,
+            "active_orders": active_orders,
+            "completed_orders": completed_orders,
+            "total_items": total_items,
+        }
+
+        # Prepare orders with only this artisan's items
+        orders = all_orders.prefetch_related(
             Prefetch(
                 "items",
                 queryset=artisan_items,
                 to_attr="artisan_order_items"
-            ),
-            Prefetch(
-                "artisan_responses",
-                queryset=ArtisanOrderResponse.objects.filter(
-                    artisan=request.user
-                ),
-                to_attr="current_artisan_responses"
             )
         ).order_by("-created_at")
 
+        # Search
         search = request.query_params.get(
             "search", ""
         ).strip()
 
-        # Search
         if search:
             order_search = Q(order_number__icontains=search)
 
@@ -2091,9 +2614,44 @@ class ArtisanOrderListView(APIView):
                 Q(items__product_name__icontains=search)
             ).distinct()
 
+        # Filter by order status
+        status_filter = request.query_params.get(
+            "status", ""
+        ).strip().upper()
+
+        if status_filter:
+            valid_statuses = [
+                choice[0] for choice in Order.Status.choices
+            ]
+
+            if status_filter not in valid_statuses:
+                return Response(
+                    {"error": "Invalid order status."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            orders = orders.filter(
+                status=status_filter
+            )
+
+        # Pagination
+        try:
+            page_size = int(
+                request.query_params.get("page_size", 10)
+            )
+        except (TypeError, ValueError):
+            page_size = 10
+
+        page_size = max(1, min(page_size, 50))
+
+        paginator = Paginator(orders, page_size)
+
+        page_number = request.query_params.get("page", 1)
+        page_obj = paginator.get_page(page_number)
+
         result = []
 
-        for order in orders:
+        for order in page_obj.object_list:
 
             items = order.artisan_order_items
 
@@ -2102,10 +2660,8 @@ class ArtisanOrderListView(APIView):
                 Decimal("0.00")
             )
 
-            artisan_response = (
-                order.current_artisan_responses[0]
-                if order.current_artisan_responses
-                else None
+            total_quantity = sum(
+                item.quantity for item in items
             )
 
             result.append({
@@ -2131,25 +2687,33 @@ class ArtisanOrderListView(APIView):
                 ],
 
                 "items_count": len(items),
+                "total_quantity": total_quantity,
                 "artisan_subtotal": artisan_subtotal,
                 "order_status": order.status,
-
-                "artisan_response": {
-                    "id": artisan_response.id,
-                    "status": artisan_response.status,
-                    "rejection_reason": artisan_response.rejection_reason,
-                    "response_note": artisan_response.response_note,
-                    "responded_at": artisan_response.responded_at,
-                } if artisan_response else None,
-
                 "created_at": order.created_at,
             })
 
         return Response(
-            result,
+            {
+                "count": paginator.count,
+                "page": page_obj.number,
+                "page_size": page_size,
+                "total_pages": paginator.num_pages,
+                "next": (
+                    page_obj.next_page_number()
+                    if page_obj.has_next()
+                    else None
+                ),
+                "previous": (
+                    page_obj.previous_page_number()
+                    if page_obj.has_previous()
+                    else None
+                ),
+                "summary": summary,
+                "results": result,
+            },
             status=status.HTTP_200_OK
         )
-
 
 class ArtisanOrderDetailView(APIView):
     permission_classes = [IsAuthenticated]
@@ -2185,13 +2749,6 @@ class ArtisanOrderDetailView(APIView):
                         "product__images"
                     ),
                     to_attr="artisan_order_items"
-                ),
-                Prefetch(
-                    "artisan_responses",
-                    queryset=ArtisanOrderResponse.objects.filter(
-                        artisan=request.user
-                    ),
-                    to_attr="current_artisan_responses"
                 )
             ).get(
                 id=order_id,
@@ -2209,12 +2766,6 @@ class ArtisanOrderDetailView(APIView):
         artisan_subtotal = sum(
             (item.subtotal for item in items),
             Decimal("0.00")
-        )
-
-        artisan_response = (
-            order.current_artisan_responses[0]
-            if order.current_artisan_responses
-            else None
         )
 
         result = {
@@ -2243,14 +2794,6 @@ class ArtisanOrderDetailView(APIView):
             "artisan_subtotal": artisan_subtotal,
             "order_status": order.status,
 
-            "artisan_response": {
-                "id": artisan_response.id,
-                "status": artisan_response.status,
-                "rejection_reason": artisan_response.rejection_reason,
-                "response_note": artisan_response.response_note,
-                "responded_at": artisan_response.responded_at,
-            } if artisan_response else None,
-
             "created_at": order.created_at,
             "updated_at": order.updated_at,
         }
@@ -2259,415 +2802,8 @@ class ArtisanOrderDetailView(APIView):
             result,
             status=status.HTTP_200_OK
         )
-class ArtisanAcceptOrderView(APIView):
-    permission_classes = [IsAuthenticated]
 
-    def post(self, request, order_id):
 
-        if getattr(request.user, "role", None) != "ARTISAN":
-            return Response(
-                {"detail": "Only artisans can accept order requests."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        with transaction.atomic():
-
-            artisan_response = (
-                ArtisanOrderResponse.objects
-                .select_for_update()
-                .filter(
-                    order_id=order_id,
-                    artisan=request.user
-                )
-                .first()
-            )
-
-            if not artisan_response:
-                return Response(
-                    {"detail": "Order request not found."},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-
-            if artisan_response.status != ArtisanOrderResponse.Status.PENDING:
-                return Response(
-                    {"detail": "You have already responded to this order."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            if artisan_response.order.status == Order.Status.CANCELLED:
-                return Response(
-                    {"detail": "This order has been cancelled."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            payment = (
-                Payment.objects
-                .select_for_update()
-                .filter(order_id=order_id)
-                .order_by("-created_at")
-                .first()
-            )
-
-            if not payment:
-                return Response(
-                    {"detail": "Payment record not found."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            if (
-                payment.payment_method == Payment.Method.RAZORPAY
-                and payment.status != Payment.Status.SUCCESS
-            ):
-                return Response(
-                    {"detail": "Customer payment is not completed yet."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            artisan_response.status = ArtisanOrderResponse.Status.ACCEPTED
-            artisan_response.responded_at = timezone.now()
-
-            artisan_response.save(
-                update_fields=["status", "responded_at", "updated_at"]
-            )
-
-        return Response(
-            {
-                "message": "Order request accepted successfully.",
-                "order_id": order_id,
-                "response_status": artisan_response.status
-            },
-            status=status.HTTP_200_OK
-        )    
-
-class ArtisanRejectOrderView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, order_id):
-
-        if getattr(request.user, "role", None) != "ARTISAN":
-            return Response(
-                {"detail": "Only artisans can reject order requests."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        reason = request.data.get("rejection_reason", "")
-        note = request.data.get("response_note", "").strip()
-
-        valid_reasons = [
-            choice[0]
-            for choice in ArtisanOrderResponse.RejectionReason.choices
-        ]
-
-        if reason not in valid_reasons:
-            return Response(
-                {"detail": "Please provide a valid rejection reason."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if reason == ArtisanOrderResponse.RejectionReason.OTHER and not note:
-            return Response(
-                {"detail": "Please explain the rejection reason."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        refund_record = None
-        payment = None
-
-        with transaction.atomic():
-
-            artisan_response = (
-                ArtisanOrderResponse.objects
-                .select_for_update()
-                .filter(
-                    order_id=order_id,
-                    artisan=request.user
-                )
-                .first()
-            )
-
-            if not artisan_response:
-                return Response(
-                    {"detail": "Order request not found."},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-
-            if artisan_response.status != ArtisanOrderResponse.Status.PENDING:
-                return Response(
-                    {"detail": "You have already responded to this order."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            order = (
-                Order.objects
-                .select_for_update()
-                .get(pk=order_id)
-            )
-
-            if order.status == Order.Status.CANCELLED:
-                return Response(
-                    {"detail": "This order has been cancelled."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            artisan_items = list(
-                OrderItem.objects
-                .select_for_update()
-                .filter(
-                    order=order,
-                    product__artisan__user_id=request.user.id
-                )
-                .select_related("product")
-            )
-
-            if not artisan_items:
-                return Response(
-                    {"detail": "No products found for this artisan in this order."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            # Find the successful Razorpay payment, if available.
-            payment = (
-                Payment.objects
-                .select_for_update()
-                .filter(
-                    order=order,
-                    payment_method=Payment.Method.RAZORPAY,
-                    status=Payment.Status.SUCCESS
-                )
-                .order_by("-created_at")
-                .first()
-            )
-
-            if payment is None:
-                cod_payment = (
-                    Payment.objects
-                    .filter(
-                        order=order,
-                        payment_method=Payment.Method.COD
-                    )
-                    .order_by("-created_at")
-                    .first()
-                )
-
-                if cod_payment:
-                    payment = cod_payment
-                else:
-                    return Response(
-                        {
-                            "detail": (
-                                "Payment is not completed. "
-                                "The artisan cannot reject this request yet."
-                            )
-                        },
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
-            # Calculate this artisan's product subtotal.
-            artisan_subtotal = sum(
-                (item.subtotal for item in artisan_items),
-                Decimal("0.00")
-            )
-
-            if order.subtotal <= 0 or artisan_subtotal <= 0:
-                return Response(
-                    {"detail": "Unable to calculate the artisan refund amount."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            # Allocate shipping and tax proportionally.
-            shipping_share = (
-                order.shipping_charge * artisan_subtotal / order.subtotal
-            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-            tax_share = (
-                order.tax * artisan_subtotal / order.subtotal
-            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-            refund_amount = (
-                artisan_subtotal + shipping_share + tax_share
-            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-            # Restore stock only for this artisan's products.
-            for item in artisan_items:
-
-                if not item.product_id:
-                    continue
-
-                reference = (
-                    f"order:{order.id}:item:{item.id}:"
-                    "ARTISAN_REJECTION_RESTORATION"
-                )
-
-                adjustment_exists = StockAdjustment.objects.filter(
-                    reference=reference
-                ).exists()
-
-                if not adjustment_exists:
-
-                    StockAdjustment.objects.create(
-                        order_item=item,
-                        product_id=item.product_id,
-                        adjustment_type=(
-                            StockAdjustment.AdjustmentType
-                            .ARTISAN_REJECTION_RESTORATION
-                        ),
-                        quantity=item.quantity,
-                        reference=reference
-                    )
-
-                    Product.objects.filter(
-                        pk=item.product_id
-                    ).update(
-                        stock=F("stock") + item.quantity
-                    )
-
-            # Create a separate refund record for Razorpay.
-            if payment.payment_method == Payment.Method.RAZORPAY:
-
-                if not payment.razorpay_payment_id:
-                    return Response(
-                        {"detail": "Razorpay payment reference is missing."},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
-                previous_refunds = payment.artisan_refunds.exclude(
-                    status=ArtisanRefund.Status.FAILED
-                )
-
-                already_allocated = sum(
-                    previous_refunds.values_list("amount", flat=True),
-                    Decimal("0.00")
-                )
-
-                available_amount = payment.amount - already_allocated
-
-                if refund_amount > available_amount:
-                    return Response(
-                        {
-                            "detail": (
-                                "The calculated refund exceeds the "
-                                "remaining refundable payment amount."
-                            )
-                        },
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
-                refund_record = ArtisanRefund.objects.create(
-                    payment=payment,
-                    artisan_response=artisan_response,
-                    amount=refund_amount,
-                    status=ArtisanRefund.Status.PENDING
-                )
-
-            # Update only this artisan's response.
-            artisan_response.status = ArtisanOrderResponse.Status.REJECTED
-            artisan_response.rejection_reason = reason
-            artisan_response.response_note = note
-            artisan_response.responded_at = timezone.now()
-
-            artisan_response.save(
-                update_fields=[
-                    "status",
-                    "rejection_reason",
-                    "response_note",
-                    "responded_at",
-                    "updated_at"
-                ]
-            )
-
-        # Razorpay API call happens after the database transaction commits.
-        if refund_record:
-
-            try:
-                razorpay_result = create_razorpay_refund(
-                    payment.razorpay_payment_id,
-                    refund_record.amount
-                )
-
-                razorpay_status = razorpay_result.get("status", "pending")
-                razorpay_refund_id = razorpay_result.get("id")
-
-                refund_record.razorpay_refund_id = razorpay_refund_id
-
-                if razorpay_status == "processed":
-                    refund_record.status = ArtisanRefund.Status.PROCESSED
-
-                elif razorpay_status == "failed":
-                    refund_record.status = ArtisanRefund.Status.FAILED
-                    refund_record.failure_reason = (
-                        "Razorpay reported that the refund failed."
-                    )
-
-                else:
-                    refund_record.status = ArtisanRefund.Status.PENDING
-
-                refund_record.save(
-                    update_fields=[
-                        "razorpay_refund_id",
-                        "status",
-                        "failure_reason",
-                        "updated_at"
-                    ]
-                )
-
-                if refund_record.status == ArtisanRefund.Status.PROCESSED:
-
-                    processed_total = sum(
-                        payment.artisan_refunds.filter(
-                            status=ArtisanRefund.Status.PROCESSED
-                        ).values_list("amount", flat=True),
-                        Decimal("0.00")
-                    )
-
-                    if processed_total >= payment.amount:
-                        payment.status = Payment.Status.REFUNDED
-
-                elif refund_record.status == ArtisanRefund.Status.PENDING:
-                    payment.status = Payment.Status.REFUND_PENDING
-
-                elif refund_record.status == ArtisanRefund.Status.FAILED:
-                    payment.status = Payment.Status.REFUND_FAILED
-
-                payment.save(update_fields=["status", "updated_at"])
-
-            except Exception as exc:
-                # Keep the refund PENDING if Razorpay's result is uncertain.
-                # Do not automatically submit another refund request.
-                refund_record.failure_reason = str(exc)
-                refund_record.save(
-                    update_fields=["failure_reason", "updated_at"]
-                )
-
-                return Response(
-                    {
-                        "message": "Order rejected. Refund confirmation is pending.",
-                        "response_status": artisan_response.status,
-                        "refund_status": refund_record.status
-                    },
-                    status=status.HTTP_202_ACCEPTED
-                )
-
-            return Response(
-                {
-                    "message": "Order rejected successfully.",
-                    "response_status": artisan_response.status,
-                    "rejection_reason": reason,
-                    "refund_amount": str(refund_record.amount),
-                    "refund_status": refund_record.status
-                },
-                status=status.HTTP_200_OK
-            )
-
-        return Response(
-            {
-                "message": "Order rejected successfully.",
-                "response_status": artisan_response.status,
-                "rejection_reason": reason,
-                "refund_amount": "0.00",
-                "refund_status": "NOT_REQUIRED"
-            },
-            status=status.HTTP_200_OK
-        )
 class MarkCODPaymentCollectedView(APIView):
     permission_classes = [IsAdminUser]
 
@@ -2736,4 +2872,304 @@ class MarkCODPaymentCollectedView(APIView):
             return Response(
                 {"error": "Payment not found."},
                 status=status.HTTP_404_NOT_FOUND
-            )    
+            )
+
+
+# ==========================================
+# COUPON VIEWS
+# ==========================================
+
+class ApplyCouponView(APIView):
+    """
+    Customer endpoint to validate and preview coupon discount against cart or buy-now item.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.role != "CUSTOMER":
+            return Response(
+                {"error": "Only customers can apply coupons."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = ApplyCouponSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        coupon_code = data["code"].strip()
+        product_id = data.get("product_id")
+        quantity = data.get("quantity", 1)
+
+        eligible_subtotal = Decimal("0.00")
+
+        if product_id:
+            try:
+                product = Product.objects.select_related("category", "artisan__user").get(id=product_id)
+            except Product.DoesNotExist:
+                return Response(
+                    {"error": "Product not found."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            is_available = (
+                product.is_published
+                and not product.is_deleted
+                and not product.category.is_deleted
+                and product.artisan.verification_status == "APPROVED"
+                and product.artisan.user.is_active
+                and product.stock >= quantity
+            )
+            if not is_available:
+                return Response(
+                    {"error": f"{product.name} is unavailable or has insufficient stock."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            unit_price = (
+                product.discount_price
+                if (product.discount_price is not None and product.discount_price < product.price)
+                else product.price
+            )
+            eligible_subtotal = unit_price * quantity
+        else:
+            try:
+                cart = Cart.objects.prefetch_related(
+                    "items__product__category",
+                    "items__product__artisan__user"
+                ).get(user=request.user)
+            except Cart.DoesNotExist:
+                return Response(
+                    {"error": "Your cart is empty."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            cart_items = list(cart.items.all())
+            if not cart_items:
+                return Response(
+                    {"error": "Your cart is empty."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            for item in cart_items:
+                product = item.product
+                is_available = (
+                    product.is_published
+                    and not product.is_deleted
+                    and not product.category.is_deleted
+                    and product.artisan.verification_status == "APPROVED"
+                    and product.artisan.user.is_active
+                    and product.stock > 0
+                    and item.quantity > 0
+                    and item.quantity <= product.stock
+                )
+                if not is_available:
+                    return Response(
+                        {"error": f"{product.name} is unavailable or has insufficient stock."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                unit_price = (
+                    product.discount_price
+                    if (product.discount_price is not None and product.discount_price < product.price)
+                    else product.price
+                )
+                eligible_subtotal += unit_price * item.quantity
+
+        if eligible_subtotal <= Decimal("0.00"):
+            return Response(
+                {"error": "No eligible items for coupon application."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            coupon_calc = validate_and_calculate_coupon(
+                coupon_code=coupon_code,
+                user=request.user,
+                eligible_subtotal=eligible_subtotal,
+                lock=False,
+            )
+        except DjangoValidationError as err:
+            error_msg = err.message_dict.get("coupon_code", [str(err)])[0] if hasattr(err, "message_dict") else str(err)
+            return Response({"error": error_msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {
+                "valid": True,
+                "coupon": {
+                    "id": coupon_calc["coupon"].id,
+                    "code": coupon_calc["coupon_code"],
+                    "discount_type": coupon_calc["discount_type"],
+                    "discount_value": str(coupon_calc["discount_value"]),
+                    "discount_amount": str(coupon_calc["discount_amount"]),
+                    "eligible_subtotal": str(coupon_calc["eligible_subtotal"]),
+                    "new_subtotal": str(coupon_calc["new_subtotal"]),
+                },
+                "message": f"Coupon {coupon_calc['coupon_code']} applied successfully! You saved ₹{coupon_calc['discount_amount']:.2f}.",
+            },
+            status=status.HTTP_200_OK
+        )
+
+class AvailableCouponsView(APIView):
+    """
+    Returns currently available coupons for the logged-in customer.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != "CUSTOMER":
+            return Response(
+                {"error": "Only customers can view available coupons."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        now = timezone.now()
+
+        coupons = Coupon.objects.filter(
+            is_active=True,
+            is_deleted=False,
+            start_date__lte=now,
+            expiry_date__gte=now,
+        ).order_by("expiry_date")
+
+        available_coupons = []
+
+        for coupon in coupons:
+            total_usage = CouponUsage.objects.filter(
+                coupon=coupon
+            ).count()
+
+            current_total_usage = max(
+                coupon.total_used_count,
+                total_usage
+            )
+
+            if (
+                coupon.max_total_usage is not None
+                and current_total_usage >= coupon.max_total_usage
+            ):
+                continue
+
+            customer_usage = CouponUsage.objects.filter(
+                coupon=coupon,
+                user=request.user
+            ).count()
+
+            if customer_usage >= coupon.max_usage_per_customer:
+                continue
+
+            available_coupons.append(coupon)
+
+        serializer = AvailableCouponSerializer(
+            available_coupons,
+            many=True
+        )
+
+        return Response(
+            {
+                "count": len(available_coupons),
+                "coupons": serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+class AdminCouponListCreateView(APIView):
+    """
+    Admin endpoint to list all coupons and create a new coupon.
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        qs = Coupon.objects.filter(is_deleted=False).prefetch_related("usages").order_by("-created_at")
+
+        search = request.query_params.get("search", "").strip()
+        if search:
+            qs = qs.filter(code__icontains=search)
+
+        status_filter = request.query_params.get("status", "").strip().lower()
+        now = timezone.now()
+        if status_filter == "active":
+            qs = qs.filter(is_active=True, expiry_date__gte=now)
+        elif status_filter == "inactive":
+            qs = qs.filter(is_active=False)
+        elif status_filter == "expired":
+            qs = qs.filter(expiry_date__lt=now)
+
+        serializer = CouponAdminSerializer(qs, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = CouponAdminSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        coupon = serializer.save()
+        return Response(
+            CouponAdminSerializer(coupon).data,
+            status=status.HTTP_201_CREATED
+        )
+
+
+class AdminCouponDetailView(APIView):
+    """
+    Admin endpoint to retrieve, update, or soft-delete a coupon.
+    """
+    permission_classes = [IsAdminUser]
+
+    def get_object(self, pk):
+        try:
+            return Coupon.objects.prefetch_related("usages__user", "usages__order").get(pk=pk, is_deleted=False)
+        except Coupon.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        coupon = self.get_object(pk)
+        if not coupon:
+            return Response({"error": "Coupon not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = CouponAdminSerializer(coupon)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def patch(self, request, pk):
+        coupon = self.get_object(pk)
+        if not coupon:
+            return Response({"error": "Coupon not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = CouponAdminSerializer(coupon, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        updated_coupon = serializer.save()
+        return Response(CouponAdminSerializer(updated_coupon).data, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        coupon = self.get_object(pk)
+        if not coupon:
+            return Response({"error": "Coupon not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        coupon.is_deleted = True
+        coupon.is_active = False
+        coupon.save(update_fields=["is_deleted", "is_active", "updated_at"])
+        return Response(
+            {"message": f"Coupon {coupon.code} has been successfully deleted."},
+            status=status.HTTP_200_OK
+        )
+class AdminCouponToggleStatusView(APIView):
+    """
+    Admin endpoint to quickly toggle a coupon's active / inactive status.
+    """
+    permission_classes = [IsAdminUser]
+    def patch(self, request, pk):
+        try:
+            coupon = Coupon.objects.get(pk=pk, is_deleted=False)
+        except Coupon.DoesNotExist:
+            return Response({"error": "Coupon not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        coupon.is_active = not coupon.is_active
+        coupon.save(update_fields=["is_active", "updated_at"])
+
+        status_text = "activated" if coupon.is_active else "deactivated"
+        return Response(
+            {
+                "message": f"Coupon {coupon.code} {status_text} successfully.",
+                "is_active": coupon.is_active,
+                "id": coupon.id,
+            },
+            status=status.HTTP_200_OK
+        )

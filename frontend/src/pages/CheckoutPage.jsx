@@ -39,11 +39,29 @@ const loadRazorpayScript = () => {
       return;
     }
 
-    const script = document.createElement("script");
+    const existingScript = document.querySelector(
+      'script[src="https://checkout.razorpay.com/v1/checkout.js"]'
+    );
 
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(true), {
+        once: true,
+      });
+
+      existingScript.addEventListener("error", () => resolve(false), {
+        once: true,
+      });
+
+      if (window.Razorpay) {
+        resolve(true);
+      }
+
+      return;
+    }
+
+    const script = document.createElement("script");
     script.src = "https://checkout.razorpay.com/v1/checkout.js";
     script.async = true;
-
     script.onload = () => resolve(true);
     script.onerror = () => resolve(false);
 
@@ -77,6 +95,17 @@ function CheckoutPage() {
 
   const [pendingOrderId, setPendingOrderId] = useState(null);
 
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [applyingCoupon, setApplyingCoupon] = useState(false);
+  const [couponMessage, setCouponMessage] = useState("");
+  const [couponError, setCouponError] = useState("");
+
+  const [availableCoupons, setAvailableCoupons] = useState([]);
+  const [availableCouponsLoading, setAvailableCouponsLoading] =
+    useState(true);
+  const [availableCouponsError, setAvailableCouponsError] = useState("");
+
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
@@ -102,10 +131,7 @@ function CheckoutPage() {
           : api.get("/products/cart/");
 
         const [addressResponse, checkoutResponse] =
-          await Promise.all([
-            addressPromise,
-            checkoutPromise,
-          ]);
+          await Promise.all([addressPromise, checkoutPromise]);
 
         const addressData = Array.isArray(addressResponse.data)
           ? addressResponse.data
@@ -154,20 +180,64 @@ function CheckoutPage() {
     fetchCheckoutData();
   }, [navigate, isBuyNow, buyNowProductId]);
 
+  // Fetch available coupons for customer.
+  useEffect(() => {
+    const fetchAvailableCoupons = async () => {
+      try {
+        setAvailableCouponsLoading(true);
+        setAvailableCouponsError("");
+
+        const response = await api.get("/orders/coupons/available/");
+
+        setAvailableCoupons(
+          Array.isArray(response.data?.coupons)
+            ? response.data.coupons
+            : []
+        );
+      } catch (err) {
+        console.error("Available coupons fetch error:", err);
+
+        if (err.response?.status === 401) {
+          navigate("/login");
+          return;
+        }
+
+        setAvailableCouponsError(
+          err.response?.data?.error ||
+            "Unable to load available coupons."
+        );
+      } finally {
+        setAvailableCouponsLoading(false);
+      }
+    };
+
+    fetchAvailableCoupons();
+  }, [navigate]);
+
   // Buy Now price calculation.
   const buyNowUnitPrice = buyNowProduct
     ? buyNowProduct.discount_price !== null &&
       buyNowProduct.discount_price !== undefined &&
-      Number(buyNowProduct.discount_price) < Number(buyNowProduct.price)
+      Number(buyNowProduct.discount_price) <
+        Number(buyNowProduct.price)
       ? Number(buyNowProduct.discount_price)
       : Number(buyNowProduct.price)
     : 0;
 
   const buyNowSubtotal = buyNowUnitPrice * buyNowQuantity;
 
-  const checkoutTotal = isBuyNow
+  const checkoutSubtotal = isBuyNow
     ? buyNowSubtotal
     : Number(cart?.cart_total || 0);
+
+  const couponDiscount = Number(
+    appliedCoupon?.coupon?.discount_amount || 0
+  );
+
+  const checkoutTotal = Math.max(
+    0,
+    checkoutSubtotal - couponDiscount
+  );
 
   const hasCheckoutItems = isBuyNow
     ? Boolean(
@@ -187,9 +257,7 @@ function CheckoutPage() {
   // Payment method is available only if every product allows it.
   const canUseCOD =
     checkoutItems.length > 0 &&
-    checkoutItems.every(
-      (product) => product.allow_cod === true
-    );
+    checkoutItems.every((product) => product.allow_cod === true);
 
   const canUseOnlinePayment =
     checkoutItems.length > 0 &&
@@ -209,11 +277,7 @@ function CheckoutPage() {
     ) {
       setSelectedPaymentMethod("");
     }
-  }, [
-    selectedPaymentMethod,
-    canUseCOD,
-    canUseOnlinePayment,
-  ]);
+  }, [selectedPaymentMethod, canUseCOD, canUseOnlinePayment]);
 
   const handleAddressChange = (event) => {
     setSelectedAddress(event.target.value);
@@ -289,11 +353,7 @@ function CheckoutPage() {
         );
       }
 
-      setAddresses((previous) => [
-        ...previous,
-        savedAddress,
-      ]);
-
+      setAddresses((previous) => [...previous, savedAddress]);
       setSelectedAddress(String(savedAddress.id));
       setShowNewAddress(false);
       setNewAddress(initialAddress);
@@ -323,12 +383,103 @@ function CheckoutPage() {
     }
   };
 
+  // Apply coupon.
+  const handleApplyCoupon = async () => {
+    setCouponError("");
+    setCouponMessage("");
+
+    const code = couponCode.trim().toUpperCase();
+
+    if (!code) {
+      setCouponError("Please enter a coupon code.");
+      return;
+    }
+
+    if (!hasCheckoutItems) {
+      setCouponError("There are no items available for checkout.");
+      return;
+    }
+
+    try {
+      setApplyingCoupon(true);
+
+      const payload = {
+        code,
+      };
+
+      if (isBuyNow) {
+        payload.product_id = Number(buyNowProductId);
+        payload.quantity = buyNowQuantity;
+      }
+
+      const response = await api.post(
+        "/orders/coupons/apply/",
+        payload
+      );
+
+      if (!response.data?.valid || !response.data?.coupon) {
+        throw new Error(
+          response.data?.message || "Unable to apply this coupon."
+        );
+      }
+
+      setAppliedCoupon(response.data);
+      setCouponCode(response.data.coupon.code);
+      setCouponMessage(
+        response.data.message || "Coupon applied successfully!"
+      );
+    } catch (err) {
+      console.error("Apply coupon error:", err);
+
+      setAppliedCoupon(null);
+
+      if (err.response?.status === 401) {
+        navigate("/login");
+        return;
+      }
+
+      setCouponError(
+        err.response?.data?.message ||
+          err.response?.data?.error ||
+          err.response?.data?.detail ||
+          err.message ||
+          "Invalid coupon code."
+      );
+    } finally {
+      setApplyingCoupon(false);
+    }
+  };
+
+  // Remove applied coupon.
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponCode("");
+    setCouponMessage("");
+    setCouponError("");
+  };
+
+  const handleCouponCodeChange = (event) => {
+    setCouponCode(event.target.value);
+
+    setAppliedCoupon(null);
+    setCouponMessage("");
+    setCouponError("");
+  };
+
+  // Select an available coupon.
+  const handleSelectAvailableCoupon = (code) => {
+    setCouponCode(code);
+    setCouponError("");
+    setCouponMessage("");
+  };
+
   const handlePaymentMethodChange = (method) => {
     setSelectedPaymentMethod((previous) =>
       previous === method ? "" : method
     );
 
     setError("");
+    setSuccessMessage("");
   };
 
   // Verify successful Razorpay payment.
@@ -353,6 +504,8 @@ function CheckoutPage() {
           "Payment verification response did not contain an order."
         );
       }
+
+      setPendingOrderId(null);
 
       if (!isBuyNow) {
         window.dispatchEvent(new Event("cartUpdated"));
@@ -391,10 +544,7 @@ function CheckoutPage() {
       order_id: razorpayData.razorpay_order_id,
 
       handler: async (paymentResponse) => {
-        await verifyRazorpayPayment(
-          order.id,
-          paymentResponse
-        );
+        await verifyRazorpayPayment(order.id, paymentResponse);
       },
 
       prefill: {
@@ -412,7 +562,7 @@ function CheckoutPage() {
           setPlacingOrder(false);
 
           setError(
-            "Payment was not completed. Your order is pending. Please check My Orders."
+            "Payment was not completed. You can retry payment or choose Cash on Delivery if available."
           );
         },
       },
@@ -428,24 +578,17 @@ function CheckoutPage() {
 
       setError(
         paymentFailure.error?.description ||
-          "Payment failed. Please check your order in My Orders."
+          "Payment failed. You can retry payment or choose Cash on Delivery if available."
       );
     });
 
     razorpay.open();
   };
 
-  // Place COD or Razorpay order.
+  // Place COD or Razorpay order, or handle an existing pending order.
   const handlePlaceOrder = async () => {
     setError("");
     setSuccessMessage("");
-
-    if (pendingOrderId) {
-      setError(
-        "You already have a pending payment order. Please check My Orders."
-      );
-      return;
-    }
 
     if (!hasCheckoutItems) {
       setError(
@@ -473,11 +616,7 @@ function CheckoutPage() {
       return;
     }
 
-    // Final frontend restriction check.
-    if (
-      selectedPaymentMethod === "COD" &&
-      !canUseCOD
-    ) {
+    if (selectedPaymentMethod === "COD" && !canUseCOD) {
       setError(
         "Cash on Delivery is not available for all products in your order."
       );
@@ -506,23 +645,91 @@ function CheckoutPage() {
     try {
       setPlacingOrder(true);
 
+      // Load Razorpay when the selected method is online payment.
       if (selectedPaymentMethod === "RAZORPAY") {
         const scriptLoaded = await loadRazorpayScript();
 
         if (!scriptLoaded) {
-          setError(
+          throw new Error(
             "Unable to load Razorpay. Please check your internet connection and try again."
           );
+        }
+      }
+
+      // IMPORTANT:
+      // If a pending order already exists, do not create another order.
+      // Retry payment or change the payment method on the existing order.
+      if (pendingOrderId) {
+        if (selectedPaymentMethod === "RAZORPAY") {
+          const response = await api.post(
+            `/orders/${pendingOrderId}/retry-payment/`
+          );
+
+          const razorpayData = response.data.razorpay;
+
+          if (
+            !razorpayData?.key ||
+            !razorpayData?.razorpay_order_id
+          ) {
+            throw new Error(
+              "Unable to start payment retry. Please try again."
+            );
+          }
+
+          const selectedAddressData = addresses.find(
+            (address) =>
+              String(address.id) === String(selectedAddress)
+          );
+
+          openRazorpayCheckout(
+            {
+              id: pendingOrderId,
+              full_name: selectedAddressData?.full_name || "",
+              phone: selectedAddressData?.phone || "",
+            },
+            razorpayData
+          );
+
           setPlacingOrder(false);
+          return;
+        }
+
+        if (selectedPaymentMethod === "COD") {
+          const response = await api.post(
+            `/orders/${pendingOrderId}/change-payment-method/`
+          );
+
+          const updatedOrder = response.data.order;
+
+          if (!updatedOrder?.id) {
+            throw new Error(
+              "Unable to change the payment method. Please try again."
+            );
+          }
+
+          setPendingOrderId(null);
+
+          navigate("/order-confirmation", {
+            state: {
+              order: updatedOrder,
+            },
+          });
+
           return;
         }
       }
 
+      // Create a new order only when there is no pending order.
       const payload = {
         checkout_key: checkoutKey.current,
         payment_method: selectedPaymentMethod,
         address_id: Number(selectedAddress),
       };
+
+      // Send applied coupon to the backend checkout.
+      if (appliedCoupon?.coupon?.code) {
+        payload.coupon_code = appliedCoupon.coupon.code;
+      }
 
       let response;
 
@@ -600,7 +807,7 @@ function CheckoutPage() {
           err.message ||
           "Unable to place your order. Please try again."
       );
-
+    } finally {
       setPlacingOrder(false);
     }
   };
@@ -611,9 +818,7 @@ function CheckoutPage() {
         <Header />
 
         <div className="min-h-[60vh] flex items-center justify-center">
-          <p className="text-[#5C3A2E]">
-            Loading checkout...
-          </p>
+          <p className="text-[#5C3A2E]">Loading checkout...</p>
         </div>
 
         <Footer />
@@ -648,11 +853,20 @@ function CheckoutPage() {
           )}
 
           {pendingOrderId && (
-            <div className="mb-6">
+            <div className="mb-6 rounded-lg border border-[#D8C3B5] bg-white p-4">
+              <p className="font-semibold text-[#5C3A2E]">
+                Your previous order is still pending payment.
+              </p>
+
+              <p className="mt-1 text-sm text-gray-600">
+                You can retry online payment or select Cash on Delivery
+                if it is available for all products.
+              </p>
+
               <button
                 type="button"
                 onClick={() => navigate("/my-orders")}
-                className="rounded-lg bg-[#5C3A2E] px-5 py-3 font-semibold text-white hover:bg-[#30231E]"
+                className="mt-3 rounded-lg bg-[#5C3A2E] px-5 py-2 font-semibold text-white hover:bg-[#30231E]"
               >
                 Go to My Orders
               </button>
@@ -908,11 +1122,177 @@ function CheckoutPage() {
                     ))}
                 </div>
 
+                {/* Coupon */}
+                <div className="mt-6 border-t border-gray-100 pt-5">
+                  <h3 className="font-semibold text-[#30231E] mb-3">
+                    Apply Coupon
+                  </h3>
+
+                  {appliedCoupon ? (
+                    <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-green-800">
+                            {appliedCoupon.coupon.code}
+                          </p>
+
+                          <p className="mt-1 text-sm text-green-700">
+                            {couponMessage ||
+                              "Coupon applied successfully!"}
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleRemoveCoupon}
+                          disabled={placingOrder}
+                          className="text-sm font-semibold text-red-600 hover:underline"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Available Coupons */}
+                      <div className="mb-4">
+                        <h4 className="mb-3 text-sm font-semibold text-[#5C3A2E]">
+                          Available Coupons
+                        </h4>
+
+                        {availableCouponsLoading ? (
+                          <p className="text-sm text-gray-500">
+                            Loading available coupons...
+                          </p>
+                        ) : availableCouponsError ? (
+                          <p className="text-sm text-red-600">
+                            {availableCouponsError}
+                          </p>
+                        ) : availableCoupons.length === 0 ? (
+                          <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-500">
+                            No available coupons right now.
+                          </p>
+                        ) : (
+                          <div className="space-y-3">
+                            {availableCoupons.map((coupon) => (
+                              <div
+                                key={coupon.id}
+                                className="flex flex-col gap-3 rounded-lg border border-[#D8C3B5] bg-[#F8F4ED] p-3 sm:flex-row sm:items-center sm:justify-between"
+                              >
+                                <div>
+                                  <p className="font-bold text-[#5C3A2E]">
+                                    {coupon.code}
+                                  </p>
+
+                                  <p className="text-sm text-gray-700">
+                                    {coupon.discount_type ===
+                                    "PERCENTAGE"
+                                      ? `${Number(
+                                          coupon.discount_value
+                                        )}% OFF`
+                                      : `₹${Number(
+                                          coupon.discount_value
+                                        )} OFF`}
+                                  </p>
+
+                                  <p className="mt-1 text-xs text-gray-500">
+                                    Minimum order: ₹
+                                    {Number(
+                                      coupon.min_order_amount
+                                    ).toFixed(2)}
+                                  </p>
+
+                                  {coupon.max_discount_amount && (
+                                    <p className="text-xs text-gray-500">
+                                      Maximum discount: ₹
+                                      {Number(
+                                        coupon.max_discount_amount
+                                      ).toFixed(2)}
+                                    </p>
+                                  )}
+
+                                  <p className="text-xs text-gray-500">
+                                    Valid until:{" "}
+                                    {new Date(
+                                      coupon.expiry_date
+                                    ).toLocaleDateString("en-IN")}
+                                  </p>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleSelectAvailableCoupon(
+                                      coupon.code
+                                    )
+                                  }
+                                  disabled={
+                                    applyingCoupon || placingOrder
+                                  }
+                                  className="rounded-lg border border-[#5C3A2E] px-4 py-2 text-sm font-semibold text-[#5C3A2E] hover:bg-[#5C3A2E] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Use Code
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={couponCode}
+                          onChange={handleCouponCodeChange}
+                          placeholder="Enter coupon code"
+                          disabled={applyingCoupon || placingOrder}
+                          className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-3 uppercase outline-none focus:border-[#8B6248]"
+                        />
+
+                        <button
+                          type="button"
+                          onClick={handleApplyCoupon}
+                          disabled={
+                            applyingCoupon ||
+                            placingOrder ||
+                            !couponCode.trim()
+                          }
+                          className="rounded-lg bg-[#5C3A2E] px-4 py-3 text-sm font-semibold text-white hover:bg-[#30231E] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {applyingCoupon ? "Applying..." : "Apply"}
+                        </button>
+                      </div>
+
+                      {couponError && (
+                        <p className="mt-2 text-sm text-red-600">
+                          {couponError}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Price summary */}
                 <div className="space-y-3 mt-5 text-sm">
                   <div className="flex justify-between">
                     <span className="text-gray-600">Subtotal</span>
-                    <span>₹{checkoutTotal.toFixed(2)}</span>
+                    <span>₹{checkoutSubtotal.toFixed(2)}</span>
                   </div>
+
+                  {couponDiscount > 0 && (
+                    <div className="flex justify-between text-green-700">
+                      <span>
+                        Coupon Discount
+                        {appliedCoupon?.coupon?.code
+                          ? ` (${appliedCoupon.coupon.code})`
+                          : ""}
+                      </span>
+
+                      <span>
+                        -₹{couponDiscount.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
 
                   <div className="flex justify-between">
                     <span className="text-gray-600">Shipping</span>
@@ -944,9 +1324,7 @@ function CheckoutPage() {
                   {canUseCOD && (
                     <button
                       type="button"
-                      onClick={() =>
-                        handlePaymentMethodChange("COD")
-                      }
+                      onClick={() => handlePaymentMethodChange("COD")}
                       aria-pressed={selectedPaymentMethod === "COD"}
                       className={`w-full flex items-start gap-3 text-left rounded-lg border p-4 mb-3 transition ${
                         selectedPaymentMethod === "COD"
@@ -1015,7 +1393,8 @@ function CheckoutPage() {
                         </span>
 
                         <span className="block text-xs text-gray-500 mt-2">
-                          UPI, Debit Card, Credit Card and other supported methods.
+                          UPI, Debit Card, Credit Card and other
+                          supported methods.
                         </span>
                       </span>
                     </button>
@@ -1028,9 +1407,9 @@ function CheckoutPage() {
                       </p>
 
                       <p className="mt-1 text-sm text-red-600">
-                        The products in your order have different payment
-                        restrictions. Please remove or change products in
-                        your cart.
+                        The products in your order have different
+                        payment restrictions. Please remove or change
+                        products in your cart.
                       </p>
                     </div>
                   )}
@@ -1042,6 +1421,7 @@ function CheckoutPage() {
                   )}
                 </div>
 
+                {/* Place Order / Retry Payment */}
                 <button
                   type="button"
                   onClick={handlePlaceOrder}
@@ -1051,16 +1431,19 @@ function CheckoutPage() {
                     !hasCheckoutItems ||
                     showNewAddress ||
                     !selectedPaymentMethod ||
-                    (!canUseCOD && !canUseOnlinePayment) ||
-                    Boolean(pendingOrderId)
+                    (!canUseCOD && !canUseOnlinePayment)
                   }
                   className="w-full mt-6 rounded-lg bg-[#5C3A2E] px-5 py-3 font-semibold text-white hover:bg-[#30231E] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {placingOrder
                     ? "Processing..."
-                    : selectedPaymentMethod === "RAZORPAY"
-                    ? "Pay Now"
-                    : "Place Order"}
+                    : pendingOrderId
+                      ? selectedPaymentMethod === "RAZORPAY"
+                        ? "Retry Payment"
+                        : "Place Order"
+                      : selectedPaymentMethod === "RAZORPAY"
+                        ? "Pay Now"
+                        : "Place Order"}
                 </button>
 
                 <button

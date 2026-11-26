@@ -66,9 +66,14 @@ const ArtisanDashboardPage = () => {
                 My Products
               </button>
 
-              <span className="cursor-default rounded-full px-4 py-2 text-sm font-medium text-[#5C3A2E]">
+              {/* Order Requests Navigation */}
+              <button
+                type="button"
+                onClick={() => navigate('/artisan/orders')}
+                className="rounded-full px-4 py-2 text-sm font-medium text-[#5C3A2E] transition-colors hover:bg-[#F8F4ED]"
+              >
                 Order Requests
-              </span>
+              </button>
 
               <button
                 type="button"

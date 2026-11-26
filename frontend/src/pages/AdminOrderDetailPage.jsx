@@ -1,4 +1,3 @@
-// src/pages/AdminOrderDetailPage.jsx
 
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -79,8 +78,8 @@ const AdminOrderDetailPage = () => {
       console.error("Error fetching order:", err);
       setError(
         err.response?.data?.error ||
-          err.response?.data?.detail ||
-          "Unable to load order details."
+        err.response?.data?.detail ||
+        "Unable to load order details."
       );
     } finally {
       setLoading(false);
@@ -119,8 +118,8 @@ const AdminOrderDetailPage = () => {
       console.error("Error updating order status:", err);
       setError(
         err.response?.data?.error ||
-          err.response?.data?.detail ||
-          "Unable to update order status."
+        err.response?.data?.detail ||
+        "Unable to update order status."
       );
     } finally {
       setUpdating(false);
@@ -130,7 +129,9 @@ const AdminOrderDetailPage = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-[#F8F4ED] p-6 flex items-center justify-center">
-        <p className="text-[#5C3A2E] font-medium">Loading order details...</p>
+        <p className="text-[#5C3A2E] font-medium">
+          Loading order details...
+        </p>
       </div>
     );
   }
@@ -250,7 +251,9 @@ const AdminOrderDetailPage = () => {
         <section className="mb-6 rounded-xl bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="font-bold text-[#30231E]">Update Order Status</h2>
+              <h2 className="font-bold text-[#30231E]">
+                Update Order Status
+              </h2>
               <p className="mt-1 text-sm text-gray-500">
                 Update the order to its next permitted status.
               </p>
@@ -349,7 +352,9 @@ const AdminOrderDetailPage = () => {
             <section className="rounded-xl bg-white p-5 shadow-sm">
               <div className="mb-4 flex items-center gap-2">
                 <Package size={20} className="text-[#8B6248]" />
-                <h2 className="font-bold text-[#30231E]">Ordered Products</h2>
+                <h2 className="font-bold text-[#30231E]">
+                  Ordered Products
+                </h2>
               </div>
 
               {order.items?.length ? (
@@ -407,6 +412,20 @@ const AdminOrderDetailPage = () => {
                     {formatPrice(order.subtotal)}
                   </span>
                 </div>
+
+                {Number(order.discount_amount || 0) > 0 && (
+                  <div className="flex justify-between gap-3 text-green-700">
+                    <span>
+                      Coupon Discount
+                      {order.coupon_code
+                        ? ` (${order.coupon_code})`
+                        : ""}
+                    </span>
+                    <span className="font-medium">
+                      -{formatPrice(order.discount_amount)}
+                    </span>
+                  </div>
+                )}
 
                 <div className="flex justify-between gap-3">
                   <span className="text-gray-500">Shipping Charge</span>

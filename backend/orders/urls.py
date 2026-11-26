@@ -2,18 +2,22 @@
 from django.urls import path
 
 from .views import (
+    AdminCouponDetailView,
+    AdminCouponListCreateView,
+    AdminCouponToggleStatusView,
     AdminOrderDetailView,
     AdminOrderListView,
     AdminOrderStatusUpdateView,
     AdminPaymentListView,
     AdminReturnRequestListView,
     AdminReturnRequestUpdateView,
-   
+    ApplyCouponView,
     ArtisanOrderDetailView,
     ArtisanOrderListView,
-   
+    AvailableCouponsView,
     BuyNowCheckoutView,
     CancelOrderView,
+    ChangePaymentMethodView,
     CheckoutView,
     InvoicePDFView,
     MarkCODPaymentCollectedView,
@@ -26,9 +30,24 @@ from .views import (
 
 urlpatterns = [
     path(
+        "coupons/apply/",
+        ApplyCouponView.as_view(),
+        name="apply-coupon",
+    ),
+    path(
+        "coupons/available/",
+        AvailableCouponsView.as_view(),
+        name="available-coupons",
+    ),
+    path(
         "checkout/",
         CheckoutView.as_view(),
         name="checkout",
+    ),
+    path(
+        "buy-now/",
+        BuyNowCheckoutView.as_view(),
+        name="buy-now",
     ),
     path(
         "my-orders/",
@@ -66,6 +85,26 @@ urlpatterns = [
         name="retry-payment",
     ),
     path(
+        "<int:order_id>/change-payment-method/",
+        ChangePaymentMethodView.as_view(),
+        name="change-payment-method",
+    ),
+    path(
+        "admin/coupons/",
+        AdminCouponListCreateView.as_view(),
+        name="admin-coupon-list-create",
+    ),
+    path(
+        "admin/coupons/<int:pk>/",
+        AdminCouponDetailView.as_view(),
+        name="admin-coupon-detail",
+    ),
+    path(
+        "admin/coupons/<int:pk>/status/",
+        AdminCouponToggleStatusView.as_view(),
+        name="admin-coupon-toggle-status",
+    ),
+    path(
         "admin/orders/",
         AdminOrderListView.as_view(),
         name="admin-order-list",
@@ -91,11 +130,6 @@ urlpatterns = [
         name="admin-return-update",
     ),
     path(
-        "buy-now/",
-        BuyNowCheckoutView.as_view(),
-        name="buy-now",
-    ),
-    path(
         "admin/payments/",
         AdminPaymentListView.as_view(),
         name="admin-payment-list",
@@ -115,5 +149,4 @@ urlpatterns = [
         ArtisanOrderDetailView.as_view(),
         name="artisan-order-detail",
     ),
-    
 ]

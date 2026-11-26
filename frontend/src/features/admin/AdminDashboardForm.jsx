@@ -10,12 +10,13 @@ import {
   Tags,
   ShoppingBag,
   CreditCard,
-  TrendingUp,
+
   CalendarDays,
   ArrowRight,
   UserPlus,
-  IndianRupee,
+
   RefreshCw,
+  TicketPercent,
 } from "lucide-react";
 
 import api from "../../config/axiosInstance";
@@ -32,10 +33,9 @@ export const NAV_ITEMS = [
   { label: "Category Management", icon: Tags, path: "/admin/categories" },
   { label: "Order Management", icon: ShoppingBag, path: "/admin/orders" },
   { label: "Payment Management", icon: CreditCard, path: "/admin/payments" },
-  { label: "Stock Management", icon: Package, path: "/admin/stock"},
-  {label: "Returns Management",icon: RefreshCw, path: "/admin/returns"},
-  
-  
+  { label: "Coupon Management", icon: TicketPercent, path: "/admin/coupons" },
+  { label: "Stock Management", icon: Package, path: "/admin/stock" },
+  { label: "Returns Management", icon: RefreshCw, path: "/admin/returns" },
 ];
 
 /* ----------------------------------
@@ -128,10 +128,9 @@ const StatCard = ({ icon: Icon, title, value, description }) => (
 
 const StatusBadge = ({ status }) => (
   <span
-    className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium ${
-      STATUS_STYLES[status] ||
+    className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium ${STATUS_STYLES[status] ||
       "border-gray-200 bg-gray-50 text-gray-600"
-    }`}
+      }`}
   >
     <span className="h-1.5 w-1.5 rounded-full bg-current" />
     {status}
@@ -160,8 +159,8 @@ const AdminDashboardForm = () => {
 
       setError(
         err.response?.data?.detail ||
-          err.response?.data?.error ||
-          "Unable to load dashboard data. Please try again."
+        err.response?.data?.error ||
+        "Unable to load dashboard data. Please try again."
       );
     } finally {
       setLoading(false);
@@ -185,37 +184,37 @@ const AdminDashboardForm = () => {
 
   const statCards = stats
     ? [
-        {
-          icon: Users,
-          title: "Total Users",
-          value: stats.total_users,
-          description: `${stats.active_users} active · ${stats.blocked_users} blocked`,
-        },
-        {
-          icon: Store,
-          title: "Total Artisans",
-          value: stats.total_artisans,
-          description: `${stats.approved_artisans} approved · ${stats.pending_artisans} pending`,
-        },
-        {
-          icon: Package,
-          title: "Total Products",
-          value: stats.total_products,
-          description: `${stats.published_products} published · ${stats.unpublished_products} unpublished`,
-        },
-        {
-          icon: Tags,
-          title: "Total Categories",
-          value: stats.total_categories,
-          description: "Available marketplace categories",
-        },
-        {
-          icon: UserPlus,
-          title: "Unverified Users",
-          value: stats.unverified_users,
-          description: "Users pending email verification",
-        },
-      ]
+      {
+        icon: Users,
+        title: "Total Users",
+        value: stats.total_users,
+        description: `${stats.active_users} active · ${stats.blocked_users} blocked`,
+      },
+      {
+        icon: Store,
+        title: "Total Artisans",
+        value: stats.total_artisans,
+        description: `${stats.approved_artisans} approved · ${stats.pending_artisans} pending`,
+      },
+      {
+        icon: Package,
+        title: "Total Products",
+        value: stats.total_products,
+        description: `${stats.published_products} published · ${stats.unpublished_products} unpublished`,
+      },
+      {
+        icon: Tags,
+        title: "Total Categories",
+        value: stats.total_categories,
+        description: "Available marketplace categories",
+      },
+      {
+        icon: UserPlus,
+        title: "Unverified Users",
+        value: stats.unverified_users,
+        description: "Users pending email verification",
+      },
+    ]
     : [];
 
   return (

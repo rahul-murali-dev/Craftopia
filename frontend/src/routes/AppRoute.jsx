@@ -30,6 +30,7 @@ import ArtisanProfilePage from "../pages/ArtisanProfilePage";
 import ArtisanEditProfilePage from "../pages/ArtisanEditProfilePage";
 import ProductManagementPage from "../pages/ProductManagementPage";
 import MyProductsPage from "../pages/MyProductsPage";
+import ArtisanOrderRequestsPage from "../pages/ArtisanOrderRequestsPage";
 
 // Admin Pages
 import AdminLoginPage from "../pages/AdminLoginPage";
@@ -43,6 +44,8 @@ import AdminOrderDetailPage from "../pages/AdminOrderDetailPage";
 import AdminReturnsPage from "../pages/AdminReturnsPage";
 import AdminStockPage from "../pages/AdminStockPage";
 import AdminPaymentsPage from "../pages/AdminPaymentsPage";
+import AdminCouponManagementPage from "../pages/AdminCouponManagementPage";
+
 // Shared Profile Component
 import ChangeEmailForm from "../features/profile/ChangeEmailForm";
 
@@ -77,8 +80,22 @@ export default function AppRoute() {
 
         {/* Customer Routes */}
         <Route path="/home" element={<HomePage />} />
-        <Route path="/login" element={<GuestOnlyRoute><LoginPage /></GuestOnlyRoute>} />
-        <Route path="/signup" element={<GuestOnlyRoute><SignupPage /></GuestOnlyRoute>} />
+        <Route
+          path="/login"
+          element={
+            <GuestOnlyRoute>
+              <LoginPage />
+            </GuestOnlyRoute>
+          }
+        />
+        <Route
+          path="/signup"
+          element={
+            <GuestOnlyRoute>
+              <SignupPage />
+            </GuestOnlyRoute>
+          }
+        />
         <Route path="/verify-otp" element={<OTPVerificationPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -94,17 +111,40 @@ export default function AppRoute() {
         <Route path="/artisans/:id" element={<PublicArtisanProfilePage />} />
         <Route path="/artisans" element={<ArtisanListPage />} />
         <Route path="/checkout" element={<CheckoutPage />} />
-        <Route path="/order-confirmation" element={<OrderConfirmationPage />} />
+        <Route
+          path="/order-confirmation"
+          element={<OrderConfirmationPage />}
+        />
         <Route path="/my-orders" element={<MyOrdersPage />} />
         <Route path="/my-orders/:id" element={<OrderDetailPage />} />
+
         {/* Artisan Routes */}
-        <Route path="/artisan-dashboard" element={<ArtisanDashboardPage />} />
+        <Route
+          path="/artisan-dashboard"
+          element={<ArtisanDashboardPage />}
+        />
         <Route path="/artisan/profile" element={<ArtisanProfilePage />} />
-        <Route path="/artisan/profile/edit" element={<ArtisanEditProfilePage />} />
-        <Route path="/artisan/change-email" element={<ChangeEmailForm returnPath="/artisan/profile" />} />
-        <Route path="/artisan/products/add" element={<ProductManagementPage />} />
+        <Route
+          path="/artisan/profile/edit"
+          element={<ArtisanEditProfilePage />}
+        />
+        <Route
+          path="/artisan/change-email"
+          element={<ChangeEmailForm returnPath="/artisan/profile" />}
+        />
+        <Route
+          path="/artisan/products/add"
+          element={<ProductManagementPage />}
+        />
         <Route path="/artisan/products" element={<MyProductsPage />} />
-        <Route path="/artisan/products/:id/edit" element={<ProductManagementPage />} />
+        <Route
+          path="/artisan/products/:id/edit"
+          element={<ProductManagementPage />}
+        />
+        <Route
+          path="/artisan/orders"
+          element={<ArtisanOrderRequestsPage />}
+        />
 
         {/* Admin Login */}
         <Route path="/admin-login" element={<AdminLoginPage />} />
@@ -115,14 +155,13 @@ export default function AppRoute() {
           <Route path="users" element={<AdminUserManagementPage />} />
           <Route path="artisans" element={<AdminArtisanManagementPage />} />
           <Route path="categories" element={<CategoryManagementPage />} />
-          <Route path="/admin/products" element={<AdminProductManagementPage />}/>
+          <Route path="products" element={<AdminProductManagementPage />} />
           <Route path="orders" element={<AdminOrdersPage />} />
           <Route path="orders/:id" element={<AdminOrderDetailPage />} />
           <Route path="returns" element={<AdminReturnsPage />} />
           <Route path="stock" element={<AdminStockPage />} />
           <Route path="payments" element={<AdminPaymentsPage />} />
-  
-
+          <Route path="coupons" element={<AdminCouponManagementPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

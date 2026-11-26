@@ -10,8 +10,10 @@ from .models import (
     OrderItem,
     Payment,
     ReturnRequest,
-    ArtisanOrderResponse,
+    Coupon,
+    CouponUsage,
 )
+
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -26,6 +28,9 @@ class OrderItemSerializer(serializers.ModelSerializer):
             "unit_price",
             "quantity",
             "subtotal",
+            "is_cancelled",
+            "cancellation_reason",
+            "cancelled_at",
             "created_at",
         ]
         read_only_fields = fields
@@ -55,45 +60,31 @@ class OrderItemSerializer(serializers.ModelSerializer):
         }
 
 
-class ArtisanOrderResponseSerializer(serializers.ModelSerializer):
-    artisan_id = serializers.IntegerField(
-        source="artisan.id",
-        read_only=True
-    )
-    artisan_name = serializers.SerializerMethodField()
-
-    class Meta:
-        model = ArtisanOrderResponse
-        fields = [
-            "id",
-            "artisan_id",
-            "artisan_name",
-            "status",
-            "rejection_reason",
-            "response_note",
-            "responded_at",
-        ]
-        read_only_fields = fields
-
-    def get_artisan_name(self, obj):
-        return (
-            obj.artisan.get_full_name()
-            or obj.artisan.username
-        )
-
-
 class OrderSerializer(serializers.ModelSerializer):
     order_number = serializers.SerializerMethodField()
     items = OrderItemSerializer(many=True, read_only=True)
     return_request = serializers.SerializerMethodField()
-    artisan_responses = ArtisanOrderResponseSerializer(
-        many=True,
-        read_only=True
-    )
+    payment = serializers.SerializerMethodField()
 
     def get_order_number(self, obj):
         return f"CRP-{obj.id:05d}"
 
+    def get_payment(self, obj):
+        latest_payment = obj.payments.order_by(
+            "-created_at",
+            "-id"
+        ).first()
+
+        if not latest_payment:
+            return None
+
+        return {
+            "id": latest_payment.id,
+            "payment_method": latest_payment.payment_method,
+            "status": latest_payment.status,
+            "amount": latest_payment.amount,
+            "failure_reason": latest_payment.failure_reason,
+        }
 
     class Meta:
         model = Order
@@ -108,18 +99,19 @@ class OrderSerializer(serializers.ModelSerializer):
             "state",
             "pincode",
             "subtotal",
+            "coupon_code",
+            "discount_amount",
             "shipping_charge",
             "tax",
             "total_amount",
             "status",
+            "payment",
             "cancellation_reason",
             "items",
             "return_request",
-            "artisan_responses",
             "created_at",
             "updated_at",
         ]
-
         read_only_fields = fields
 
     def get_return_request(self, obj):
@@ -139,7 +131,6 @@ class OrderSerializer(serializers.ModelSerializer):
             "completed_at": return_request.completed_at,
         }
 
-
 class CheckoutAddressSerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=100)
     phone = serializers.CharField(max_length=20)
@@ -155,6 +146,11 @@ class CheckoutSerializer(serializers.Serializer):
     checkout_key = serializers.UUIDField()
     payment_method = serializers.ChoiceField(
         choices=Payment.Method.choices
+    )
+    coupon_code = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default=""
     )
 
     def validate(self, attrs):
@@ -249,6 +245,11 @@ class BuyNowCheckoutSerializer(serializers.Serializer):
     payment_method = serializers.ChoiceField(
         choices=Payment.Method.choices
     )
+    coupon_code = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default=""
+    )
 
     def validate(self, attrs):
         request = self.context.get("request")
@@ -333,7 +334,14 @@ class BuyNowCheckoutSerializer(serializers.Serializer):
         return attrs
 
 
+
 class CancelOrderSerializer(serializers.Serializer):
+
+    order_item_id = serializers.IntegerField(
+        required=True,
+        min_value=1
+    )
+
     reason = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -372,3 +380,189 @@ class ReturnRequestSerializer(serializers.ModelSerializer):
             )
 
         return value
+
+
+class CouponUsageSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+    user_email = serializers.EmailField(source="user.email", read_only=True)
+    order_number = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CouponUsage
+        fields = [
+            "id",
+            "user",
+            "user_name",
+            "user_email",
+            "order",
+            "order_number",
+            "discount_amount",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_user_name(self, obj):
+        return obj.user.get_full_name() or obj.user.username
+
+    def get_order_number(self, obj):
+        return f"CRP-{obj.order_id:05d}"
+
+
+class CouponAdminSerializer(serializers.ModelSerializer):
+    usages = CouponUsageSerializer(many=True, read_only=True)
+    actual_used_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Coupon
+        fields = [
+            "id",
+            "code",
+            "discount_type",
+            "discount_value",
+            "min_order_amount",
+            "max_discount_amount",
+            "start_date",
+            "expiry_date",
+            "max_total_usage",
+            "max_usage_per_customer",
+            "total_used_count",
+            "actual_used_count",
+            "is_active",
+            "is_deleted",
+            "usages",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "total_used_count",
+            "actual_used_count",
+            "is_deleted",
+            "usages",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_actual_used_count(self, obj):
+        return obj.usages.count()
+
+    def validate_code(self, value):
+        code_clean = value.strip().upper()
+
+        if not code_clean:
+            raise serializers.ValidationError(
+                "Coupon code cannot be empty."
+            )
+
+        if len(code_clean) < 3:
+            raise serializers.ValidationError(
+                "Coupon code must be at least 3 characters long."
+            )
+
+        qs = Coupon.objects.filter(
+            code__iexact=code_clean,
+            is_deleted=False
+        )
+
+        if self.instance:
+            qs = qs.exclude(id=self.instance.id)
+
+        if qs.exists():
+            raise serializers.ValidationError(
+                "A coupon with this code already exists."
+            )
+
+        return code_clean
+
+    def validate_discount_value(self, value):
+        if value <= Decimal("0.00"):
+            raise serializers.ValidationError(
+                "Discount value must be greater than zero."
+            )
+
+        return value
+
+    def validate(self, attrs):
+        discount_type = attrs.get(
+            "discount_type",
+            getattr(self.instance, "discount_type", None)
+        )
+        discount_value = attrs.get(
+            "discount_value",
+            getattr(self.instance, "discount_value", None)
+        )
+        start_date = attrs.get(
+            "start_date",
+            getattr(self.instance, "start_date", None)
+        )
+        expiry_date = attrs.get(
+            "expiry_date",
+            getattr(self.instance, "expiry_date", None)
+        )
+
+        if discount_type == Coupon.DiscountType.PERCENTAGE:
+            if discount_value and discount_value > Decimal("100.00"):
+                raise serializers.ValidationError({
+                    "discount_value": (
+                        "Percentage discount cannot exceed 100%."
+                    )
+                })
+
+        if start_date and expiry_date and expiry_date <= start_date:
+            raise serializers.ValidationError({
+                "expiry_date": (
+                    "Expiry date must be after the start date."
+                )
+            })
+
+        if self.instance and self.instance.orders.filter(
+            status__in=[
+                Order.Status.CONFIRMED,
+                Order.Status.SHIPPED,
+                Order.Status.DELIVERED
+            ]
+        ).exists():
+
+            if (
+                "discount_type" in attrs
+                and attrs["discount_type"] != self.instance.discount_type
+            ):
+                raise serializers.ValidationError({
+                    "discount_type": (
+                        "Cannot modify discount type for a coupon "
+                        "that has already been redeemed."
+                    )
+                })
+
+            if (
+                "discount_value" in attrs
+                and attrs["discount_value"] != self.instance.discount_value
+            ):
+                raise serializers.ValidationError({
+                    "discount_value": (
+                        "Cannot modify discount value for a coupon "
+                        "that has already been redeemed."
+                    )
+                })
+
+        return attrs
+
+
+class ApplyCouponSerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=50, required=True)
+    product_id = serializers.IntegerField(required=False)
+    quantity = serializers.IntegerField(required=False, min_value=1)
+
+class AvailableCouponSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Coupon
+        fields = [
+            "id",
+            "code",
+            "discount_type",
+            "discount_value",
+            "min_order_amount",
+            "max_discount_amount",
+            "start_date",
+            "expiry_date",
+        ]
